@@ -7,6 +7,9 @@ if [ "x$cmd" == "xbuild" ]; then
   NOW=$(date +'%Y-%m-%d_%T')
   go mod tidy
   go mod vendor
+  for proto in $(find internal -name *.proto); do
+    protoc --experimental_allow_proto3_optional -I $(dirname $proto) --go_out=$(dirname $proto) $(basename $proto)
+  done
   go build -ldflags "-X main.version=$REV -X main.buildTime=$NOW"  -o ./bin/backup ./cmd/backup
 elif [ "x$cmd" == "xtest" ]; then
   shift

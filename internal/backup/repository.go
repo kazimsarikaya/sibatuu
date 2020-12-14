@@ -17,52 +17,103 @@ limitations under the License.
 package backup
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"encoding/gob"
+	"encoding/binary"
+	proto "github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	klog "k8s.io/klog/v2"
 	"os"
-	"time"
 )
 
 const (
 	repoInfo string = ".repoinfo"
 )
 
-var (
-	repositoryHeader = [...]byte{0xFE, 0xED, 0xFA, 0xCE, 0xCA, 0xFE, 0xBE, 0xEF}
-)
-
-type Repository struct {
-	Header     [8]byte
-	CreateTime int64
-	Checksum   [32]byte
+func NewRepositoy() (*Repository, error) {
+	sum := [32]byte{}
+	r := Repository{CreateTime: ptypes.TimestampNow(), LastUpdated: ptypes.TimestampNow(), Checksum: sum[:]}
+	return &r, nil
 }
 
-func NewRepositoy() (*Repository, error) {
-	r := Repository{Header: repositoryHeader, CreateTime: time.Now().UnixNano()}
+func OpenRepositoy(path string) (*Repository, error) {
+	f, err := os.Open(path + repoInfo)
+	if err != nil {
+		klog.V(0).Error(err, "cannot open repoinfo")
+		return nil, err
+	}
+	_, err = f.Seek(-16, 2)
+	if err != nil {
+		klog.V(0).Error(err, "cannot go end of repoinfo")
+		return nil, err
+	}
+	data := make([]byte, 16)
+	len, err := f.Read(data)
+	if len != 16 {
+		klog.V(0).Error(err, "cannot read repoinfo meta")
+		return nil, err
+	}
+
+	if !checkHeader(data) {
+		klog.V(0).Error(err, "repoinfo meta broken")
+		return nil, err
+	}
+
+	datalen := binary.LittleEndian.Uint64(data[8:])
+	f.Seek(0, 0)
+	data = make([]byte, datalen)
+	len, err = f.Read(data)
+	if len != int(datalen) {
+		klog.V(0).Error(err, "cannot read repoinfo")
+		return nil, err
+	}
+
+	var r Repository
+
+	if err = proto.Unmarshal(data, &r); err != nil {
+		klog.V(0).Error(err, "cannot build repoinfo")
+		return nil, err
+	}
+
+	sum := r.GetChecksum()
+
+	zerosum := [32]byte{}
+	r.Checksum = zerosum[:]
+	postout, err := proto.Marshal(&r)
+	if err != nil {
+		klog.V(0).Error(err, "cannot encode repository info")
+		return nil, err
+	}
+	testsum := sha256.Sum256(postout)
+	for i := range sum {
+		if sum[i] != testsum[i] {
+			klog.V(0).Error(err, "checksum mismatch")
+			return nil, err
+		}
+	}
+	r.Checksum = sum[:]
+
+	klog.V(5).Infof("repoinfo %v", r)
 	return &r, nil
 }
 
 func (r *Repository) Initialize(path string) error {
-	var preBuffer bytes.Buffer
-	enc := gob.NewEncoder(&preBuffer)
-	err := enc.Encode(r)
+	preout, err := proto.Marshal(r)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode repository info")
 		return err
 	}
+	klog.V(5).Infof("protobuf %v", preout)
 
-	sum := sha256.Sum256(preBuffer.Bytes())
-	copy(r.Checksum[:], sum[:])
+	sum := sha256.Sum256(preout)
+	r.Checksum = sum[:]
+	klog.V(5).Infof("sum %v", r.Checksum)
 
-	var buffer bytes.Buffer
-	enc = gob.NewEncoder(&buffer)
-	err = enc.Encode(r)
+	out, err := proto.Marshal(r)
 	if err != nil {
-		klog.V(0).Error(err, "cannot encode repository info")
+		klog.V(0).Error(err, "cannot encode repository info witch checksum")
 		return err
 	}
+	klog.V(5).Infof("protobuf %v", out)
 
 	f, err := os.Create(path + repoInfo)
 	if err != nil {
@@ -71,10 +122,23 @@ func (r *Repository) Initialize(path string) error {
 	}
 	defer f.Close()
 
-	_, err = f.Write(buffer.Bytes())
+	_, err = f.Write(out)
 	if err != nil {
 		klog.V(0).Error(err, "cannot write repoinfo")
 		return err
 	}
+
+	if _, err = f.Write(repositoryHeader); err != nil {
+		klog.V(0).Error(err, "cannot write trailer header")
+		return err
+	}
+	lenarray := make([]byte, 8)
+	binary.LittleEndian.PutUint64(lenarray, uint64(len(out)))
+	if _, err = f.Write(lenarray); err != nil {
+		klog.V(0).Error(err, "cannot write data len")
+		return err
+	}
+
+	klog.V(0).Infof("repo created")
 	return nil
 }

@@ -1,0 +1,57 @@
+syntax = "proto3";
+package backup;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = ".;backup";
+
+message ChunkInfo {
+  fixed64 chunk_id = 1;
+  fixed64 start = 3;
+  fixed64 length = 4;
+  bytes checksum = 5;
+}
+
+message ChunkInfos {
+  message PreviousChunkInfos {
+    fixed64 start = 1;
+    fixed64 length = 2;
+  }
+  repeated ChunkInfo chunk_infos = 1;
+  PreviousChunkInfos previous = 2;
+  bytes checksum = 3;
+}
+
+message Backup {
+  message FileInfo {
+    string file_name = 1;
+    google.protobuf.Timestamp last_modified = 2;
+    fixed64 file_length = 3;
+    repeated fixed64 chunk_ids = 4;
+  }
+  repeated FileInfo file_infos = 1;
+  bytes checksum = 2;
+}
+
+message Repository {
+  message BackupMeta {
+    fixed64 backup_id = 1;
+    google.protobuf.Timestamp backup_time = 2;
+    string backup_blob = 3;
+    fixed64 start = 4;
+    fixed64 length = 5;
+    repeated string tag = 6;
+  }
+  google.protobuf.Timestamp create_time = 1;
+  google.protobuf.Timestamp last_updated = 2;
+  repeated BackupMeta backup_metas = 3;
+  fixed64 last_chunk_id = 4;
+  fixed64 last_backup_id = 5;
+  bytes checksum = 6;
+}
+
+message LocalCache {
+  repeated ChunkInfo chunk_infos = 1;
+  optional Backup last_backup = 2;
+  bytes checksum = 3;
+}

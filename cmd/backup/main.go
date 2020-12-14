@@ -53,9 +53,16 @@ func main() {
 		r, _ := backup.NewRepositoy()
 		err := r.Initialize(*repository)
 		if err != nil {
-			klog.V(0).Error(err, "error occured while initialize repo %v %v", repository)
+			klog.V(0).Error(err, "error occured while initialize repo %v", repository)
 			os.Exit(1)
 		}
+	} else {
+		_, err := backup.OpenRepositoy(*repository)
+		if err != nil {
+			klog.V(0).Error(err, "error occured while opening repo %v", repository)
+			os.Exit(1)
+		}
+
 	}
 
 }
