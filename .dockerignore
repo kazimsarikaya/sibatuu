@@ -1,0 +1,12 @@
+# remove binary files
+bin/**
+*.test
+# remove non-code folders
+docker/**
+tmp/**
+# always refresh depends
+vendor/**
+# docker.sh is needed at remote site
+docker.sh
+# we don't need any docs while building
+*.md
