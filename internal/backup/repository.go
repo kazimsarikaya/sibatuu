@@ -21,8 +21,8 @@ import (
 	"encoding/binary"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
-	"os"
 )
 
 const (
@@ -35,19 +35,21 @@ func NewRepositoy() (*Repository, error) {
 	return &r, nil
 }
 
-func OpenRepositoy(path string) (*Repository, error) {
-	f, err := os.Open(path + repoInfo)
+func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
+	reader, err := fs.Open(repoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot open repoinfo")
 		return nil, err
 	}
-	_, err = f.Seek(-16, 2)
+	defer reader.Close()
+
+	_, err = reader.Seek(-16, 2)
 	if err != nil {
 		klog.V(0).Error(err, "cannot go end of repoinfo")
 		return nil, err
 	}
 	data := make([]byte, 16)
-	len, err := f.Read(data)
+	len, err := reader.Read(data)
 	if len != 16 {
 		klog.V(0).Error(err, "cannot read repoinfo meta")
 		return nil, err
@@ -59,9 +61,9 @@ func OpenRepositoy(path string) (*Repository, error) {
 	}
 
 	datalen := binary.LittleEndian.Uint64(data[8:])
-	f.Seek(0, 0)
+	reader.Seek(0, 0)
 	data = make([]byte, datalen)
-	len, err = f.Read(data)
+	len, err = reader.Read(data)
 	if len != int(datalen) {
 		klog.V(0).Error(err, "cannot read repoinfo")
 		return nil, err
@@ -96,7 +98,7 @@ func OpenRepositoy(path string) (*Repository, error) {
 	return &r, nil
 }
 
-func (r *Repository) Initialize(path string) error {
+func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 	preout, err := proto.Marshal(r)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode repository info")
@@ -115,26 +117,26 @@ func (r *Repository) Initialize(path string) error {
 	}
 	klog.V(5).Infof("protobuf %v", out)
 
-	f, err := os.Create(path + repoInfo)
+	writer, err := fs.Create(repoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot create repoinfo")
 		return err
 	}
-	defer f.Close()
+	defer writer.Close()
 
-	_, err = f.Write(out)
+	_, err = writer.Write(out)
 	if err != nil {
 		klog.V(0).Error(err, "cannot write repoinfo")
 		return err
 	}
 
-	if _, err = f.Write(repositoryHeader); err != nil {
+	if _, err = writer.Write(repositoryHeader); err != nil {
 		klog.V(0).Error(err, "cannot write trailer header")
 		return err
 	}
 	lenarray := make([]byte, 8)
 	binary.LittleEndian.PutUint64(lenarray, uint64(len(out)))
-	if _, err = f.Write(lenarray); err != nil {
+	if _, err = writer.Write(lenarray); err != nil {
 		klog.V(0).Error(err, "cannot write data len")
 		return err
 	}

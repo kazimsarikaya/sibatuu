@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/kazimsarikaya/backup/internal/backup"
+	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
 	"os"
 	"path"
@@ -49,15 +50,21 @@ func main() {
 		return
 	}
 
+	fs, err := backupfs.NewLocalBackupFS(*repository)
+	if err != nil {
+		klog.V(0).Error(err, "cannot create file system for repository %v", repository)
+		os.Exit(1)
+	}
+
 	if *initRepo {
 		r, _ := backup.NewRepositoy()
-		err := r.Initialize(*repository)
+		err := r.Initialize(fs)
 		if err != nil {
 			klog.V(0).Error(err, "error occured while initialize repo %v", repository)
 			os.Exit(1)
 		}
 	} else {
-		_, err := backup.OpenRepositoy(*repository)
+		_, err := backup.OpenRepositoy(fs)
 		if err != nil {
 			klog.V(0).Error(err, "error occured while opening repo %v", repository)
 			os.Exit(1)
