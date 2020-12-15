@@ -46,25 +46,19 @@ message Backup {
     fixed32 mode = 4;
     repeated fixed64 chunk_ids = 5;
   }
-  repeated FileInfo file_infos = 1;
-  bytes checksum = 2;
+  fixed64 backup_id = 1;
+  google.protobuf.Timestamp backup_time = 2;
+  repeated string tag = 3;
+  repeated FileInfo file_infos = 4;
+  bytes checksum = 5;
 }
 
 message Repository {
-  message BackupMeta {
-    fixed64 backup_id = 1;
-    google.protobuf.Timestamp backup_time = 2;
-    string backup_blob = 3;
-    fixed64 start = 4;
-    fixed64 length = 5;
-    repeated string tag = 6;
-  }
   google.protobuf.Timestamp create_time = 1;
   google.protobuf.Timestamp last_updated = 2;
-  repeated BackupMeta backup_metas = 3;
-  fixed64 last_chunk_id = 4;
-  fixed64 last_backup_id = 5;
-  bytes checksum = 6;
+  fixed64 last_chunk_id = 3;
+  fixed64 last_backup_id = 4;
+  bytes checksum = 5;
 }
 
 message LocalCache {

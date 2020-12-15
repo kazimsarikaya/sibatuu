@@ -32,13 +32,24 @@ const (
 	repoInfo string = "repoinfo"
 )
 
-func NewRepositoy() (*Repository, error) {
+type RepositoryHelper struct {
+	Repository
+	cache *Cache
+	fs    backupfs.BackupFS
+	ch    *ChunkHelper
+}
+
+func NewRepositoy(fs backupfs.BackupFS) (*RepositoryHelper, error) {
 	sum := [32]byte{}
-	r := Repository{CreateTime: ptypes.TimestampNow(), LastUpdated: ptypes.TimestampNow(), Checksum: sum[:]}
+	r := RepositoryHelper{}
+	r.CreateTime = ptypes.TimestampNow()
+	r.LastUpdated = ptypes.TimestampNow()
+	r.Checksum = sum[:]
+	r.fs = fs
 	return &r, nil
 }
 
-func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
+func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, error) {
 	reader, err := fs.Open(repoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot open repoinfo")
@@ -72,7 +83,7 @@ func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
 		return nil, err
 	}
 
-	var r Repository
+	r := RepositoryHelper{}
 
 	if err = proto.Unmarshal(data, &r); err != nil {
 		klog.V(0).Error(err, "cannot build repoinfo")
@@ -97,13 +108,26 @@ func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
 	}
 	r.Checksum = sum[:]
 
+	r.fs = fs
+	r.ch, err = NewChunkHelper(fs, r.GetLastChunkId()+1)
+	if err != nil {
+		klog.V(5).Error(err, "cannot create chunk helper")
+		return nil, err
+	}
+	cache, err := NewCache(fs, cacheDir, r.ch)
+	if err != nil {
+		klog.V(0).Error(err, "error occured while creating cache")
+		return nil, err
+	}
+	r.cache = cache
+
 	klog.V(5).Infof("repoinfo %v", r)
 	return &r, nil
 }
 
-func (r *Repository) Initialize(fs backupfs.BackupFS) error {
-	if err := fs.Mkdirs("."); err != nil {
-		klog.V(0).Error(err, "cannot create chunks folder")
+func (r *RepositoryHelper) Initialize() error {
+	if err := r.fs.Mkdirs("."); err != nil {
+		klog.V(0).Error(err, "cannot create repository folder")
 		return err
 	}
 
@@ -125,7 +149,7 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 	}
 	klog.V(5).Infof("protobuf %v", out)
 
-	writer, err := fs.Create(repoInfo)
+	writer, err := r.fs.Create(repoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot create repoinfo")
 		return err
@@ -149,12 +173,12 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 		return err
 	}
 
-	if err = fs.Mkdirs(chunkDir); err != nil {
+	if err = r.fs.Mkdirs(chunkDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
 
-	if err = fs.Mkdirs("backups"); err != nil {
+	if err = r.fs.Mkdirs("backups"); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
@@ -163,10 +187,10 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 	return nil
 }
 
-func (r *Repository) Backup(fs backupfs.BackupFS, path string) error {
-	ch, err := NewChunkHelper(fs, r.GetLastChunkId()+1)
+func (r *RepositoryHelper) Backup(path string) error {
+	err := r.ch.startSession()
 	if err != nil {
-		klog.V(5).Error(err, "cannot create chunk helper")
+		klog.V(5).Error(err, "cannot start chunk session")
 		return err
 	}
 	err = filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
@@ -177,18 +201,23 @@ func (r *Repository) Backup(fs backupfs.BackupFS, path string) error {
 			}
 			for {
 				data := make([]byte, chunkSize)
-				r, err := inf.Read(data)
+				rcnt, err := inf.Read(data)
 				if err != nil {
 					if err == io.EOF {
 						break
 					}
 					return err
 				}
-				data = data[:r]
-				err = ch.append(data)
-				if err != nil {
-					klog.V(0).Error(err, "cannot append data")
-					return err
+				data = data[:rcnt]
+				sum := sha256.Sum256(data)
+				_, res := r.cache.findChunkId(sum[:])
+				if !res {
+					chunk_id, err := r.ch.append(data, sum[:])
+					r.cache.appendDirtyChunkId(chunk_id, sum[:])
+					if err != nil {
+						klog.V(0).Error(err, "cannot append chunk")
+						return err
+					}
 				}
 			}
 		}
@@ -197,7 +226,7 @@ func (r *Repository) Backup(fs backupfs.BackupFS, path string) error {
 	if err != nil {
 		return err
 	}
-	err = ch.endSession()
+	err = r.ch.endSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot end chunk helper")
 	}

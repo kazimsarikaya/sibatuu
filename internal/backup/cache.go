@@ -15,3 +15,104 @@ limitations under the License.
 */
 
 package backup
+
+import (
+	"crypto/sha256"
+	proto "github.com/golang/protobuf/proto"
+	"github.com/kazimsarikaya/backup/internal/backupfs"
+	klog "k8s.io/klog/v2"
+	"os"
+)
+
+const (
+	localCaheFile string = "localCache"
+)
+
+type dirtyChunkId struct {
+	chunkId uint64
+	sum     []byte
+}
+
+type Cache struct {
+	*LocalCache
+	fs            backupfs.BackupFS
+	cacheDir      string
+	dirtyChunkIds []dirtyChunkId
+	ch            *ChunkHelper
+}
+
+func NewCache(fs backupfs.BackupFS, cacheDir string, ch *ChunkHelper) (*Cache, error) {
+	c := &Cache{fs: fs, cacheDir: cacheDir, ch: ch}
+	err := c.fillCache()
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (c *Cache) appendDirtyChunkId(chunkId uint64, sum []byte) {
+	dii := dirtyChunkId{chunkId: chunkId, sum: sum}
+	c.dirtyChunkIds = append(c.dirtyChunkIds, dii)
+}
+
+func (c *Cache) findChunkId(sum []byte) (uint64, bool) {
+	for _, ci := range c.LocalCache.GetChunkInfos() {
+		var found = true
+		for i := range sum {
+			if ci.Checksum[i] != sum[i] {
+				found = false
+			}
+		}
+		if found {
+			return ci.GetChunkId(), true
+		}
+	}
+
+	for _, dii := range c.dirtyChunkIds {
+		var found = true
+		for i := range sum {
+			if dii.sum[i] != sum[i] {
+				found = false
+			}
+		}
+		if found {
+			return dii.chunkId, true
+		}
+	}
+	return 0, false
+}
+
+func (c *Cache) fillCache() error {
+	cinfos, err := c.ch.getAllChunks()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get all chunks")
+		return err
+	}
+	c.LocalCache = &LocalCache{ChunkInfos: cinfos}
+
+	preout, err := proto.Marshal(c.LocalCache)
+	if err != nil {
+		klog.V(5).Error(err, "cannot encode local cache")
+		return err
+	}
+	sum := sha256.Sum256(preout)
+	c.LocalCache.Checksum = sum[:]
+	out, err := proto.Marshal(c.LocalCache)
+	if err != nil {
+		klog.V(5).Error(err, "cannot encode local cache")
+		return err
+	}
+	os.MkdirAll(c.cacheDir, 0700)
+	outf, err := os.Create(c.cacheDir + "/" + localCaheFile)
+	if err != nil {
+		klog.V(5).Error(err, "cannot create local cache file")
+		return err
+	}
+	_, err = outf.Write(out)
+	if err != nil {
+		klog.V(5).Error(err, "cannot create local cache file")
+		return err
+	}
+	outf.Close()
+	return nil
+}
