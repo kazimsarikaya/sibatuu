@@ -57,7 +57,7 @@ func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
 		klog.V(0).Error(err, "cannot read repoinfo meta")
 		return nil, err
 	}
-	var datalen uint64 = 0
+	var datalen int64 = 0
 	var res bool
 	if res, datalen = checkHeaderAndGetLength(data); !res {
 		klog.V(0).Error(err, "repoinfo meta broken")

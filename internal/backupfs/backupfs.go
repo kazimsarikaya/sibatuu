@@ -27,7 +27,7 @@ type BackupFS interface {
 	Open(path string) (ReadSeekCloser, error)
 	Append(path string) (io.WriteCloser, error)
 	List(path string) ([]string, error)
-	Length(path string) (uint64, error)
+	Length(path string) (int64, error)
 }
 
 type ReadSeekCloser interface {

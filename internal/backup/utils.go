@@ -24,12 +24,12 @@ var (
 	repositoryHeader = []byte{0xFE, 0xED, 0xFA, 0xCE, 0xCA, 0xFE, 0xBE, 0xEF}
 )
 
-func checkHeaderAndGetLength(data []byte) (bool, uint64) {
+func checkHeaderAndGetLength(data []byte) (bool, int64) {
 	for i := range repositoryHeader {
 		if repositoryHeader[i] != data[i] {
 			return false, 0
 		}
 	}
 	datalen := binary.LittleEndian.Uint64(data[8:])
-	return true, datalen
+	return true, int64(datalen)
 }

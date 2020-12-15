@@ -30,13 +30,13 @@ import (
 
 const (
 	chunkDir         string = "chunks"
-	maxChunkBlobSize uint64 = 128 << 20
+	maxChunkBlobSize int64  = 128 << 20
 	chunkSize        int64  = 4 << 10
 )
 
 type ChunkHelper struct {
 	currentChunkBlob     string
-	currentChunkBlobSize uint64
+	currentChunkBlobSize int64
 	currentChunkWriter   io.WriteCloser
 	fs                   backupfs.BackupFS
 	nextChunkId          uint64
@@ -58,7 +58,7 @@ func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, err
 }
 
 func (ch *ChunkHelper) append(data []byte) error {
-	datalen := uint64(len(data))
+	datalen := int64(len(data))
 	var err error = nil
 	if ch.currentChunkBlobSize+datalen > maxChunkBlobSize {
 		err = ch.endSession()
@@ -77,9 +77,9 @@ func (ch *ChunkHelper) append(data []byte) error {
 		}
 	}
 	sum := sha256.Sum256(data)
-	ci := &ChunkInfo{ChunkId: ch.nextChunkId, Start: ch.currentChunkBlobSize, Length: datalen, Checksum: sum[:]}
+	ci := &ChunkInfo{ChunkId: ch.nextChunkId, Start: uint64(ch.currentChunkBlobSize), Length: uint64(datalen), Checksum: sum[:]}
 	wl, err := ch.currentChunkWriter.Write(data)
-	if err != nil || uint64(wl) != datalen {
+	if err != nil || int64(wl) != datalen {
 		if err == nil {
 			err = errors.New("written data length mismatch")
 		}
@@ -143,7 +143,7 @@ func (ch *ChunkHelper) startSession() error {
 			}
 			return err
 		}
-		var datalen uint64 = 0
+		var datalen int64 = 0
 		var r bool
 		if r, datalen = checkHeaderAndGetLength(data); !r || datalen == 0 {
 			klog.V(0).Infof("chunk infos broken")
@@ -153,8 +153,8 @@ func (ch *ChunkHelper) startSession() error {
 			klog.V(5).Infof("chunk infos broken")
 			return errors.New("chunk infos broken")
 		}
-		prevChunkInfos.Start = ch.currentChunkBlobSize - 16 - datalen
-		prevChunkInfos.Length = datalen
+		prevChunkInfos.Start = uint64(ch.currentChunkBlobSize - 16 - datalen)
+		prevChunkInfos.Length = uint64(datalen)
 		// TODO: need lookup checksum?
 		reader.Close()
 	}

@@ -70,10 +70,10 @@ func (fs *LocalBackupFS) List(path string) ([]string, error) {
 	return files, nil
 }
 
-func (fs *LocalBackupFS) Length(path string) (uint64, error) {
+func (fs *LocalBackupFS) Length(path string) (int64, error) {
 	fi, err := os.Stat(fs.basePath + "/" + path)
 	if err != nil {
 		return 0, err
 	}
-	return uint64(fi.Size()), nil
+	return fi.Size(), nil
 }
