@@ -28,6 +28,7 @@ import (
 
 var (
 	repository = flag.String("r", ".", "Backup repository")
+	source     = flag.String("s", "", "Source where backup taken from")
 	initRepo   = flag.Bool("init", false, "Init repository")
 
 	showVersion = flag.Bool("version", false, "Show version.")
@@ -64,10 +65,17 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		_, err := backup.OpenRepositoy(fs)
+		r, err := backup.OpenRepositoy(fs)
 		if err != nil {
 			klog.V(0).Error(err, "error occured while opening repo %v", repository)
 			os.Exit(1)
+		}
+		if *source != "" {
+			err = r.Backup(fs, *source)
+			if err != nil {
+				klog.V(0).Error(err, "error occured while opening repo %v", repository)
+				os.Exit(1)
+			}
 		}
 
 	}

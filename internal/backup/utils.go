@@ -16,15 +16,20 @@ limitations under the License.
 
 package backup
 
+import (
+	"encoding/binary"
+)
+
 var (
 	repositoryHeader = []byte{0xFE, 0xED, 0xFA, 0xCE, 0xCA, 0xFE, 0xBE, 0xEF}
 )
 
-func checkHeader(data []byte) bool {
+func checkHeaderAndGetLength(data []byte) (bool, uint64) {
 	for i := range repositoryHeader {
 		if repositoryHeader[i] != data[i] {
-			return false
+			return false, 0
 		}
 	}
-	return true
+	datalen := binary.LittleEndian.Uint64(data[8:])
+	return true, datalen
 }

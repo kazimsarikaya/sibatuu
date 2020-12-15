@@ -22,7 +22,10 @@ import (
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
+	"io"
 	klog "k8s.io/klog/v2"
+	"os"
+	"path/filepath"
 )
 
 const (
@@ -54,13 +57,13 @@ func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
 		klog.V(0).Error(err, "cannot read repoinfo meta")
 		return nil, err
 	}
-
-	if !checkHeader(data) {
+	var datalen uint64 = 0
+	var res bool
+	if res, datalen = checkHeaderAndGetLength(data); !res {
 		klog.V(0).Error(err, "repoinfo meta broken")
 		return nil, err
 	}
 
-	datalen := binary.LittleEndian.Uint64(data[8:])
 	reader.Seek(0, 0)
 	data = make([]byte, datalen)
 	len, err = reader.Read(data)
@@ -117,7 +120,7 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 
 	out, err := proto.Marshal(r)
 	if err != nil {
-		klog.V(0).Error(err, "cannot encode repository info witch checksum")
+		klog.V(0).Error(err, "cannot encode repository info with checksum")
 		return err
 	}
 	klog.V(5).Infof("protobuf %v", out)
@@ -146,7 +149,7 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 		return err
 	}
 
-	if err = fs.Mkdirs("chunks"); err != nil {
+	if err = fs.Mkdirs(chunkDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
@@ -158,4 +161,45 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 
 	klog.V(0).Infof("repo created")
 	return nil
+}
+
+func (r *Repository) Backup(fs backupfs.BackupFS, path string) error {
+	ch, err := NewChunkHelper(fs, r.GetLastChunkId()+1)
+	if err != nil {
+		klog.V(5).Error(err, "cannot create chunk helper")
+		return err
+	}
+	err = filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			inf, err := os.Open(file)
+			if err != nil {
+				return err
+			}
+			for {
+				data := make([]byte, chunkSize)
+				r, err := inf.Read(data)
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
+					return err
+				}
+				data = data[:r]
+				err = ch.append(data)
+				if err != nil {
+					klog.V(0).Error(err, "cannot append data")
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	err = ch.endSession()
+	if err != nil {
+		klog.V(5).Error(err, "cannot end chunk helper")
+	}
+	return err
 }

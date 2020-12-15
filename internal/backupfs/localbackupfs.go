@@ -18,7 +18,9 @@ package backupfs
 
 import (
 	"io"
+	klog "k8s.io/klog/v2"
 	"os"
+	"path/filepath"
 )
 
 type LocalBackupFS struct {
@@ -49,4 +51,29 @@ func (fs *LocalBackupFS) Open(path string) (ReadSeekCloser, error) {
 
 func (fs *LocalBackupFS) Append(path string) (io.WriteCloser, error) {
 	return os.OpenFile(fs.basePath+"/"+path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+}
+
+func (fs *LocalBackupFS) List(path string) ([]string, error) {
+	klog.V(5).Infof("listing folder %v", path)
+	var files []string
+	err := filepath.Walk(fs.basePath+"/"+path, func(file string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			file = file[len(fs.basePath+"/"+path):]
+			klog.V(5).Infof("file found %v", file)
+			files = append(files, file)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func (fs *LocalBackupFS) Length(path string) (uint64, error) {
+	fi, err := os.Stat(fs.basePath + "/" + path)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(fi.Size()), nil
 }

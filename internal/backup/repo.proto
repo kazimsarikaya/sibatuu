@@ -43,7 +43,8 @@ message Backup {
     string file_name = 1;
     google.protobuf.Timestamp last_modified = 2;
     fixed64 file_length = 3;
-    repeated fixed64 chunk_ids = 4;
+    fixed32 mode = 4;
+    repeated fixed64 chunk_ids = 5;
   }
   repeated FileInfo file_infos = 1;
   bytes checksum = 2;

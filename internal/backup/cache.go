@@ -14,23 +14,4 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package backupfs
-
-import (
-	"io"
-)
-
-type BackupFS interface {
-	Mkdirs(path string) error
-	Delete(path string) error
-	Create(path string) (io.WriteCloser, error)
-	Open(path string) (ReadSeekCloser, error)
-	Append(path string) (io.WriteCloser, error)
-	List(path string) ([]string, error)
-	Length(path string) (uint64, error)
-}
-
-type ReadSeekCloser interface {
-	io.ReadSeeker
-	io.Closer
-}
+package backup
