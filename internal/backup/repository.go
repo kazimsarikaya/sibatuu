@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	repoInfo string = ".repoinfo"
+	repoInfo string = "repoinfo"
 )
 
 func NewRepositoy() (*Repository, error) {
@@ -99,6 +99,11 @@ func OpenRepositoy(fs backupfs.BackupFS) (*Repository, error) {
 }
 
 func (r *Repository) Initialize(fs backupfs.BackupFS) error {
+	if err := fs.Mkdirs("."); err != nil {
+		klog.V(0).Error(err, "cannot create chunks folder")
+		return err
+	}
+
 	preout, err := proto.Marshal(r)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode repository info")
@@ -138,6 +143,16 @@ func (r *Repository) Initialize(fs backupfs.BackupFS) error {
 	binary.LittleEndian.PutUint64(lenarray, uint64(len(out)))
 	if _, err = writer.Write(lenarray); err != nil {
 		klog.V(0).Error(err, "cannot write data len")
+		return err
+	}
+
+	if err = fs.Mkdirs("chunks"); err != nil {
+		klog.V(0).Error(err, "cannot create chunks folder")
+		return err
+	}
+
+	if err = fs.Mkdirs("backups"); err != nil {
+		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
 
