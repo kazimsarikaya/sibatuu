@@ -58,9 +58,11 @@ func (ch *ChunkHelper) getAllChunks() ([]*ChunkInfo, error) {
 	return cinfos, nil
 }
 
-func (ch *ChunkHelper) append(data, sum []byte) (uint64, error) {
-	datalen := int64(len(data))
+func (ch *ChunkHelper) append(chunk_data, sum []byte) (uint64, error) {
 	var err error = nil
+	data := encoder.EncodeAll(chunk_data, nil)
+	datalen := int64(len(data))
+
 	if ch.currentBlobSize+datalen > maxBlobSize {
 		err = ch.endSession()
 		if err != nil {

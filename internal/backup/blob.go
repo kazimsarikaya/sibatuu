@@ -23,6 +23,7 @@ import (
 	"fmt"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
+	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/runtime/protoiface"
 	"io"
 	klog "k8s.io/klog/v2"
@@ -54,6 +55,9 @@ type Blob struct {
 	fs              backupfs.BackupFS
 	currentBlobInfo BlobInterface
 }
+
+var encoder, _ = zstd.NewWriter(nil)
+var decoder, _ = zstd.NewReader(nil)
 
 type blobParser func(data []byte, pos, datalen int64) (BlobInterface, error)
 type blobCreator func() BlobInterface
@@ -88,7 +92,12 @@ func (b *Blob) getAllBlobInfos(parser blobParser) ([]BlobInterface, error) {
 			data = make([]byte, datalen)
 			inf.Seek(pos, 0)
 			inf.Read(data)
-			parsed, err := parser(data, pos, datalen)
+			objdata, err := decoder.DecodeAll(data, nil)
+			if err != nil {
+				klog.V(5).Error(err, "cannot decode block")
+				return nil, err
+			}
+			parsed, err := parser(objdata, pos, datalen)
 			if err != nil {
 				klog.V(5).Error(err, "cannot parse data")
 				return nil, err
@@ -206,11 +215,14 @@ func (b *Blob) endSession() error {
 	b.currentBlobInfo.SetChecksum(sum[:])
 	klog.V(5).Infof("sum %v", b.currentBlobInfo.GetChecksum())
 
-	out, err := proto.Marshal(b.currentBlobInfo)
+	objdata, err := proto.Marshal(b.currentBlobInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode chunk infos with checksum")
 		return err
 	}
+
+	out := encoder.EncodeAll(objdata, nil)
+
 	writer := b.currentWriter
 	_, err = writer.Write(out)
 	if err != nil {

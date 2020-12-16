@@ -104,7 +104,7 @@ func (c *Cache) fillCache() error {
 	}
 	sum := sha256.Sum256(preout)
 	c.LocalCache.Checksum = sum[:]
-	out, err := proto.Marshal(c.LocalCache)
+	objout, err := proto.Marshal(c.LocalCache)
 	if err != nil {
 		klog.V(5).Error(err, "cannot encode local cache")
 		return err
@@ -115,6 +115,8 @@ func (c *Cache) fillCache() error {
 		klog.V(5).Error(err, "cannot create local cache file")
 		return err
 	}
+
+	out := encoder.EncodeAll(objout, nil)
 	_, err = outf.Write(out)
 	if err != nil {
 		klog.V(5).Error(err, "cannot create local cache file")
