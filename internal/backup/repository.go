@@ -239,6 +239,9 @@ func (r *RepositoryHelper) Backup(path, tag string) error {
 				r.bh.addChunkIdToFile(chunk_id)
 			}
 			r.bh.closeFile()
+		} else {
+			r.bh.createFile(file[len(path):], info.ModTime(), 0, info.Mode())
+			r.bh.closeFile()
 		}
 		return nil
 	})
