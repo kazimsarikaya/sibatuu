@@ -28,13 +28,14 @@ message ChunkInfo {
   bytes checksum = 5;
 }
 
+message Previous {
+  fixed64 start = 1;
+  fixed64 length = 2;
+}
+
 message ChunkInfos {
-  message PreviousChunkInfos {
-    fixed64 start = 1;
-    fixed64 length = 2;
-  }
   repeated ChunkInfo chunk_infos = 1;
-  PreviousChunkInfos previous = 2;
+  Previous previous = 2;
   bytes checksum = 3;
 }
 
@@ -48,9 +49,10 @@ message Backup {
   }
   fixed64 backup_id = 1;
   google.protobuf.Timestamp backup_time = 2;
-  repeated string tag = 3;
+  string tag = 3;
   repeated FileInfo file_infos = 4;
-  bytes checksum = 5;
+  Previous previous = 5;
+  bytes checksum = 6;
 }
 
 message Repository {

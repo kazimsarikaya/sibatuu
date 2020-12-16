@@ -39,10 +39,11 @@ type Cache struct {
 	cacheDir      string
 	dirtyChunkIds []dirtyChunkId
 	ch            *ChunkHelper
+	bh            *BackupHelper
 }
 
-func NewCache(fs backupfs.BackupFS, cacheDir string, ch *ChunkHelper) (*Cache, error) {
-	c := &Cache{fs: fs, cacheDir: cacheDir, ch: ch}
+func NewCache(fs backupfs.BackupFS, cacheDir string, ch *ChunkHelper, bh *BackupHelper) (*Cache, error) {
+	c := &Cache{fs: fs, cacheDir: cacheDir, ch: ch, bh: bh}
 	err := c.fillCache()
 	if err != nil {
 		return nil, err
@@ -88,7 +89,13 @@ func (c *Cache) fillCache() error {
 		klog.V(5).Error(err, "cannot get all chunks")
 		return err
 	}
-	c.LocalCache = &LocalCache{ChunkInfos: cinfos}
+	backup, err := c.bh.getLastBackup()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get last backup")
+		return err
+	}
+
+	c.LocalCache = &LocalCache{ChunkInfos: cinfos, LastBackup: backup}
 
 	preout, err := proto.Marshal(c.LocalCache)
 	if err != nil {

@@ -17,36 +17,23 @@ limitations under the License.
 package backup
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
 	"errors"
-	"fmt"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
-	"io"
 	klog "k8s.io/klog/v2"
-	"strconv"
-)
-
-const (
-	chunkDir         string = "chunks"
-	maxChunkBlobSize int64  = 128 << 20
-	chunkSize        int64  = 4 << 10
 )
 
 type ChunkHelper struct {
-	currentChunkBlob     string
-	currentChunkBlobSize int64
-	currentChunkWriter   io.WriteCloser
-	fs                   backupfs.BackupFS
-	nextChunkId          uint64
-	appendSize           int64
-	currentChunkInfos    *ChunkInfos
+	Blob
+	nextChunkId uint64
 }
 
 func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, error) {
-	ch := &ChunkHelper{fs: fs, nextChunkId: nextChunkId}
-	_, err := ch.getLastChunkBlobOrNew()
+	ch := &ChunkHelper{}
+	ch.fs = fs
+	ch.nextChunkId = nextChunkId
+	ch.blobsDir = chunksDir
+	_, err := ch.getLastBlobOrNew()
 	if err != nil {
 		return nil, err
 	}
@@ -54,50 +41,19 @@ func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, err
 }
 
 func (ch *ChunkHelper) getAllChunks() ([]*ChunkInfo, error) {
-	cfiles, err := ch.fs.List(chunkDir)
+	var cinfos []*ChunkInfo
+	_, err := ch.getAllBlobInfos(func(data []byte, pos, datalen int64) (BlobInterface, error) {
+		var chunk_infos ChunkInfos
+		err := proto.Unmarshal(data, &chunk_infos)
+		if err != nil {
+			klog.V(5).Infof("cannot unmarshal chunkinfos at location %v length %v", pos, datalen)
+			return nil, err
+		}
+		cinfos = append(cinfos, chunk_infos.GetChunkInfos()...)
+		return &chunk_infos, nil
+	})
 	if err != nil {
 		return nil, err
-	}
-	var cinfos []*ChunkInfo
-	for _, cfile := range cfiles {
-		klog.V(5).Infof("chunk blob %v", cfile)
-		inf, err := ch.fs.Open(chunkDir + "/" + cfile)
-		if err != nil {
-			klog.V(5).Infof("cannot open chunk blob %v", cfile)
-			return nil, err
-		}
-		data := make([]byte, 16)
-		inf.Seek(-16, 2)
-		inf.Read(data)
-		r, datalen := checkHeaderAndGetLength(data)
-		if !r {
-			klog.V(5).Infof("incorrect trailer for chunk blob %v %v", cfile, data)
-			return nil, errors.New("cannot read chunk infos length")
-		}
-		pos, err := ch.fs.Length(chunkDir + "/" + cfile)
-		if err != nil {
-			return nil, err
-		}
-		pos += -16 - datalen
-		for {
-			data = make([]byte, datalen)
-			inf.Seek(pos, 0)
-			inf.Read(data)
-			var chunk_infos ChunkInfos
-			err := proto.Unmarshal(data, &chunk_infos)
-			if err != nil {
-				klog.V(5).Infof("cannot unmarshal chunkinfos at location %v length %v", pos, datalen)
-				return nil, err
-			}
-			for _, chunk_info := range chunk_infos.GetChunkInfos() {
-				cinfos = append(cinfos, chunk_info)
-			}
-			if chunk_infos.Previous.Length == 0 {
-				break
-			}
-			pos = int64(chunk_infos.Previous.Start)
-			datalen = int64(chunk_infos.Previous.Length)
-		}
 	}
 	return cinfos, nil
 }
@@ -105,24 +61,27 @@ func (ch *ChunkHelper) getAllChunks() ([]*ChunkInfo, error) {
 func (ch *ChunkHelper) append(data, sum []byte) (uint64, error) {
 	datalen := int64(len(data))
 	var err error = nil
-	if ch.currentChunkBlobSize+datalen > maxChunkBlobSize {
+	if ch.currentBlobSize+datalen > maxBlobSize {
 		err = ch.endSession()
 		if err != nil {
 			return 0, err
 		}
-		nname, err := getNewChunkBlobName(ch.currentChunkBlob)
+		nname, err := getNewBlobName(ch.currentBlob)
 		if err != nil {
 			return 0, err
 		}
-		ch.currentChunkBlob = nname
-		ch.currentChunkBlobSize = 0
-		err = ch.startSession()
+		ch.currentBlob = nname
+		ch.currentBlobSize = 0
+		err = ch.startSession(func() BlobInterface {
+			var cis []*ChunkInfo
+			return &ChunkInfos{ChunkInfos: cis}
+		})
 		if err != nil {
 			return 0, err
 		}
 	}
-	ci := &ChunkInfo{ChunkId: ch.nextChunkId, Start: uint64(ch.currentChunkBlobSize), Length: uint64(datalen), Checksum: sum}
-	wl, err := ch.currentChunkWriter.Write(data)
+	ci := &ChunkInfo{ChunkId: ch.nextChunkId, Start: uint64(ch.currentBlobSize), Length: uint64(datalen), Checksum: sum}
+	wl, err := ch.currentWriter.Write(data)
 	if err != nil || int64(wl) != datalen {
 		if err == nil {
 			err = errors.New("written data length mismatch")
@@ -130,133 +89,29 @@ func (ch *ChunkHelper) append(data, sum []byte) (uint64, error) {
 		return 0, err
 	}
 	ch.nextChunkId += 1
-	ch.currentChunkInfos.ChunkInfos = append(ch.currentChunkInfos.ChunkInfos, ci)
+	ch.currentBlobInfo.Append(ci)
 	return ci.ChunkId, err
 }
 
-func (ch *ChunkHelper) endSession() error {
-	if len(ch.currentChunkInfos.GetChunkInfos()) == 0 {
-		ch.currentChunkWriter.Close()
-		return nil
-	}
-	preout, err := proto.Marshal(ch.currentChunkInfos)
-	if err != nil {
-		klog.V(0).Error(err, "cannot encode chunk infos")
-		return err
-	}
-	sum := sha256.Sum256(preout)
-	ch.currentChunkInfos.Checksum = sum[:]
-	klog.V(5).Infof("sum %v", ch.currentChunkInfos.Checksum)
-
-	out, err := proto.Marshal(ch.currentChunkInfos)
-	if err != nil {
-		klog.V(0).Error(err, "cannot encode chunk infos with checksum")
-		return err
-	}
-	writer := ch.currentChunkWriter
-	_, err = writer.Write(out)
-	if err != nil {
-		klog.V(0).Error(err, "cannot write chunk infos")
-		return err
-	}
-
-	if _, err = writer.Write(repositoryHeader); err != nil {
-		klog.V(0).Error(err, "cannot write trailer header")
-		return err
-	}
-	lenarray := make([]byte, 8)
-	binary.LittleEndian.PutUint64(lenarray, uint64(len(out)))
-	if _, err = writer.Write(lenarray); err != nil {
-		klog.V(0).Error(err, "cannot write data len")
-		return err
-	}
-	writer.Close()
-	return nil
+func (ch *ChunkHelper) startChunkSession() error {
+	return ch.startSession(func() BlobInterface {
+		var cis []*ChunkInfo
+		return &ChunkInfos{ChunkInfos: cis}
+	})
 }
 
-func (ch *ChunkHelper) startSession() error {
-	prevChunkInfos := &ChunkInfos_PreviousChunkInfos{Start: 0, Length: 0}
-	if ch.currentChunkBlobSize != 0 {
-		reader, err := ch.fs.Open(chunkDir + "/" + ch.currentChunkBlob)
-		if err != nil {
-			klog.V(5).Error(err, "cannot find last chunk infos")
-			return err
-		}
-		reader.Seek(-16, 2)
-		data := make([]byte, 16)
-		len, err := reader.Read(data)
-		if len != 16 || err != nil {
-			klog.V(5).Infof("cannot read last chunks infos length")
-			if err == nil {
-				err = errors.New("cannot read last chunks infos length")
-			}
-			return err
-		}
-		var datalen int64 = 0
-		var r bool
-		if r, datalen = checkHeaderAndGetLength(data); !r || datalen == 0 {
-			klog.V(0).Infof("chunk infos broken")
-			return errors.New("chunk infos broken")
-		}
-		if 16+datalen >= ch.currentChunkBlobSize {
-			klog.V(5).Infof("chunk infos broken")
-			return errors.New("chunk infos broken")
-		}
-		prevChunkInfos.Start = uint64(ch.currentChunkBlobSize - 16 - datalen)
-		prevChunkInfos.Length = uint64(datalen)
-		// TODO: need lookup checksum?
-		reader.Close()
-	}
-	var cis []*ChunkInfo
-	ch.currentChunkInfos = &ChunkInfos{Previous: prevChunkInfos, ChunkInfos: cis}
-	w, err := ch.fs.Append(chunkDir + "/" + ch.currentChunkBlob)
-	if err != nil {
-		klog.V(5).Error(err, "cannot create appender")
-		return err
-	}
-	ch.currentChunkWriter = w
-	return nil
+func (ci *ChunkInfos) IsEmpty() bool {
+	return len(ci.GetChunkInfos()) == 0
 }
 
-func (ch *ChunkHelper) getLastChunkBlobOrNew() (string, error) {
-	chunks, err := ch.fs.List(chunkDir)
-	if err != nil {
-		klog.V(5).Error(err, "cannot list chunks folder")
-		return "", err
-	}
-	var result string = ""
-	if len(chunks) > 0 {
-		result = chunks[len(chunks)-1]
-	}
-	if result != "" {
-		fileSize, err := ch.fs.Length(chunkDir + "/" + result)
-		if err != nil {
-			return "", err
-		}
-		if fileSize < maxChunkBlobSize {
-			ch.currentChunkBlob = result
-			ch.currentChunkBlobSize = fileSize
-			return result, nil
-		}
-	}
-	result, err = getNewChunkBlobName(result)
-	ch.currentChunkBlob = result
-	ch.currentChunkBlobSize = 0
-	if err != nil {
-		klog.V(5).Error(err, "cannot generate chunk blob name")
-		return "", err
-	}
-	return result, err
+func (ci *ChunkInfos) SetChecksum(sum []byte) {
+	ci.Checksum = sum
 }
 
-func getNewChunkBlobName(name string) (string, error) {
-	if name == "" {
-		return "000000000000", nil
-	}
-	id, err := strconv.ParseUint(name, 16, 64)
-	if err != nil {
-		return "", err
-	}
-	id += 1
-	return fmt.Sprintf("%012d", id), nil
+func (ci *ChunkInfos) SetPrevious(prev *Previous) {
+	ci.Previous = prev
+}
+
+func (ci *ChunkInfos) Append(item interface{}) {
+	ci.ChunkInfos = append(ci.ChunkInfos, item.(*ChunkInfo))
 }

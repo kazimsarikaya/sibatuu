@@ -24,12 +24,14 @@ import (
 	klog "k8s.io/klog/v2"
 	"os"
 	"path"
+	"time"
 )
 
 var (
 	repository = flag.String("r", ".", "Backup repository")
 	source     = flag.String("s", "", "Source where backup taken from")
 	cacheDir   = flag.String("c", ".cache", "Cache directory")
+	backupTag  = flag.String("t", "", "Cache directory")
 	initRepo   = flag.Bool("init", false, "Init repository")
 
 	showVersion = flag.Bool("version", false, "Show version.")
@@ -70,13 +72,15 @@ func main() {
 		if err != nil {
 			klog.V(0).Error(err, "error occured while opening repo %v", *repository)
 			os.Exit(1)
-			if *source != "" {
-				err = r.Backup(*source)
-				if err != nil {
-					klog.V(0).Error(err, "error occured while opening repo %v", *repository)
-					os.Exit(1)
-				}
-			}
+		}
+		if *backupTag == "" {
+			t := time.Now()
+			*backupTag = t.Format(time.RFC3339)
+		}
+		err = r.Backup(*source, *backupTag)
+		if err != nil {
+			klog.V(0).Error(err, "error occured while opening repo %v", *repository)
+			os.Exit(1)
 		}
 	}
 }

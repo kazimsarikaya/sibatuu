@@ -37,6 +37,7 @@ type RepositoryHelper struct {
 	cache *Cache
 	fs    backupfs.BackupFS
 	ch    *ChunkHelper
+	bh    *BackupHelper
 }
 
 func NewRepositoy(fs backupfs.BackupFS) (*RepositoryHelper, error) {
@@ -114,7 +115,14 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 		klog.V(5).Error(err, "cannot create chunk helper")
 		return nil, err
 	}
-	cache, err := NewCache(fs, cacheDir, r.ch)
+
+	r.bh, err = NewBackupHelper(r.fs)
+	if err != nil {
+		klog.V(0).Error(err, "cannot create backup helper")
+		return nil, err
+	}
+
+	cache, err := NewCache(fs, cacheDir, r.ch, r.bh)
 	if err != nil {
 		klog.V(0).Error(err, "error occured while creating cache")
 		return nil, err
@@ -173,12 +181,12 @@ func (r *RepositoryHelper) Initialize() error {
 		return err
 	}
 
-	if err = r.fs.Mkdirs(chunkDir); err != nil {
+	if err = r.fs.Mkdirs(chunksDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
 
-	if err = r.fs.Mkdirs("backups"); err != nil {
+	if err = r.fs.Mkdirs(backupsDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
@@ -187,18 +195,26 @@ func (r *RepositoryHelper) Initialize() error {
 	return nil
 }
 
-func (r *RepositoryHelper) Backup(path string) error {
-	err := r.ch.startSession()
+func (r *RepositoryHelper) Backup(path, tag string) error {
+	err := r.ch.startChunkSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot start chunk session")
 		return err
 	}
+
+	err = r.bh.startBackupSession(r.GetLastBackupId()+1, tag)
+	if err != nil {
+		klog.V(5).Error(err, "cannot start backup session")
+		return err
+	}
+
 	err = filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
 			inf, err := os.Open(file)
 			if err != nil {
 				return err
 			}
+			r.bh.createFile(file[len(path):], info.ModTime(), info.Size(), info.Mode())
 			for {
 				data := make([]byte, chunkSize)
 				rcnt, err := inf.Read(data)
@@ -210,25 +226,34 @@ func (r *RepositoryHelper) Backup(path string) error {
 				}
 				data = data[:rcnt]
 				sum := sha256.Sum256(data)
-				_, res := r.cache.findChunkId(sum[:])
+				var chunk_id uint64
+				chunk_id, res := r.cache.findChunkId(sum[:])
 				if !res {
-					chunk_id, err := r.ch.append(data, sum[:])
+					chunk_id, err = r.ch.append(data, sum[:])
 					r.cache.appendDirtyChunkId(chunk_id, sum[:])
 					if err != nil {
 						klog.V(0).Error(err, "cannot append chunk")
 						return err
 					}
 				}
+				r.bh.addChunkIdToFile(chunk_id)
 			}
+			r.bh.closeFile()
 		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+
 	err = r.ch.endSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot end chunk helper")
+	}
+
+	err = r.bh.endSession()
+	if err != nil {
+		klog.V(5).Error(err, "cannot end backup helper")
 	}
 	return err
 }
