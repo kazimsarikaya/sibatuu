@@ -26,6 +26,7 @@ import (
 	klog "k8s.io/klog/v2"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 const (
@@ -209,12 +210,15 @@ func (r *RepositoryHelper) Backup(path, tag string) error {
 	}
 
 	err = filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
+		file_sys := info.Sys()
+		uid := file_sys.(*syscall.Stat_t).Uid
+		gid := file_sys.(*syscall.Stat_t).Gid
+		r.bh.createFile(file[len(path):], info.ModTime(), info.Size(), info.Mode(), uid, gid)
 		if !info.IsDir() {
 			inf, err := os.Open(file)
 			if err != nil {
 				return err
 			}
-			r.bh.createFile(file[len(path):], info.ModTime(), info.Size(), info.Mode())
 			for {
 				data := make([]byte, chunkSize)
 				rcnt, err := inf.Read(data)
@@ -238,11 +242,8 @@ func (r *RepositoryHelper) Backup(path, tag string) error {
 				}
 				r.bh.addChunkIdToFile(chunk_id)
 			}
-			r.bh.closeFile()
-		} else {
-			r.bh.createFile(file[len(path):], info.ModTime(), 0, info.Mode())
-			r.bh.closeFile()
 		}
+		r.bh.closeFile()
 		return nil
 	})
 	if err != nil {

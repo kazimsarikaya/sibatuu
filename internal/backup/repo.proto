@@ -45,7 +45,9 @@ message Backup {
     google.protobuf.Timestamp last_modified = 2;
     fixed64 file_length = 3;
     fixed32 mode = 4;
-    repeated fixed64 chunk_ids = 5;
+    fixed32 uid = 5;
+    fixed32 gid = 6;
+    repeated fixed64 chunk_ids = 7;
   }
   fixed64 backup_id = 1;
   google.protobuf.Timestamp backup_time = 2;

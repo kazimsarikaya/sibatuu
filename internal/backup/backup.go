@@ -46,13 +46,15 @@ func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) error {
 	return err
 }
 
-func (bh *BackupHelper) createFile(fileName string, mt time.Time, len int64, mode os.FileMode) {
+func (bh *BackupHelper) createFile(fileName string, mt time.Time, len int64, mode os.FileMode, uid, gid uint32) {
 	ts, _ := ptypes.TimestampProto(mt)
 	bh.currentFile = &Backup_FileInfo{
 		FileName:     fileName,
 		LastModified: ts,
 		FileLength:   uint64(len),
 		Mode:         uint32(mode),
+		Uid:          uid,
+		Gid:          gid,
 	}
 }
 
