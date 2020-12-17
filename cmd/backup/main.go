@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/kazimsarikaya/backup/internal/backup"
@@ -27,14 +28,19 @@ import (
 )
 
 var (
-	repository   string = ""
-	source       string = ""
-	cacheDir     string = ".cache"
-	backupTag    string = ""
-	initRepo     bool   = false
-	listBackup   bool   = false
-	createBackup bool   = false
-	backupId     uint64 = 0
+	repository    string = ""
+	source        string = ""
+	cacheDir      string = ".cache"
+	backupTag     string = ""
+	initRepo      bool   = false
+	listBackup    bool   = false
+	createBackup  bool   = false
+	restoreBackup bool   = false
+	backupId      uint64 = 0
+	fileId        int    = -1
+	fileName      string = ""
+	destination   string = ""
+	override      bool   = false
 
 	showVersion = flag.Bool("version", false, "Show version.")
 
@@ -48,7 +54,7 @@ func init() {
 	flag.StringVar(&repository, "r", ".", "Backup repository")
 	flag.StringVar(&repository, "repo", ".", "Backup repository")
 
-	flag.StringVar(&source, "s", "", "Source where backup taken from")
+	flag.StringVar(&source, "src", "", "Source where backup taken from")
 	flag.StringVar(&source, "source", "", "Source where backup taken from")
 
 	flag.StringVar(&cacheDir, "c", ".cache", "Cache directory")
@@ -59,9 +65,20 @@ func init() {
 	flag.Uint64Var(&backupId, "bid", 0, "Backup Id for listing/restoring")
 	flag.Uint64Var(&backupId, "backupid", 0, "Backup Id for listing/restoring")
 
+	flag.StringVar(&fileName, "fn", "", "file name to restore single file")
+	flag.StringVar(&fileName, "filename", "", "file name to restore single file")
+	flag.IntVar(&fileId, "fid", -1, "file id to restore single file")
+	flag.IntVar(&fileId, "fileid", -1, "file id to restore single file")
+
+	flag.StringVar(&destination, "dst", "", "restoration target folder")
+	flag.StringVar(&destination, "destination", "", "restoration target folder")
+
 	flag.BoolVar(&initRepo, "init", false, "Init repository")
 	flag.BoolVar(&listBackup, "list", false, "List backups or given backup content")
 	flag.BoolVar(&createBackup, "backup", false, "Create backup")
+	flag.BoolVar(&restoreBackup, "restore", false, "Restore backup or single item by id/name if given")
+
+	flag.BoolVar(&override, "override", false, "Override if file exists at destination")
 
 	flag.Set("logtostderr", "true")
 }
@@ -116,9 +133,49 @@ func main() {
 		} else if backupId == 0 && backupTag != "" {
 			r.ListBackupWithTag(backupTag)
 		} else {
-			klog.V(0).Infof("cannot have bot id and tag")
+			klog.V(0).Infof("cannot have both id and tag")
 			os.Exit(1)
 		}
 		return
+	}
+	if restoreBackup {
+		if destination == "" {
+			klog.V(0).Error(errors.New("no destination given"), "cannot restore")
+			os.Exit(1)
+		}
+		r, err := backup.OpenRepositoy(fs, cacheDir)
+		if err != nil {
+			klog.V(0).Error(err, "error occured while opening repo "+repository)
+			os.Exit(1)
+		}
+		if backupId != 0 && backupTag == "" {
+			if fileId == -1 && fileName == "" {
+				err = r.RestoreItemsWithBid(destination, backupId, override)
+			} else if fileId != -1 && fileName == "" {
+				err = r.RestoreItemWithFidWithBid(destination, fileId, backupId, override)
+			} else if fileId == -1 && fileName != "" {
+				err = r.RestoreItemWithFnameWithBid(destination, fileName, backupId, override)
+			} else {
+				klog.V(0).Infof("cannot have both file id and name")
+				os.Exit(1)
+			}
+		} else if backupId == 0 && backupTag != "" {
+			if fileId == -1 && fileName == "" {
+				err = r.RestoreItemsWithBtag(destination, backupTag, override)
+			} else if fileId != -1 && fileName == "" {
+				err = r.RestoreItemWithFidWithBtag(destination, fileId, backupTag, override)
+			} else if fileId == -1 && fileName != "" {
+				err = r.RestoreItemWithFnameWithBtag(destination, fileName, backupTag, override)
+			} else {
+				klog.V(0).Infof("cannot have both file id and name")
+				os.Exit(1)
+			}
+		} else {
+			klog.V(0).Infof("one of backup id or tag required")
+			os.Exit(1)
+		}
+		if err != nil {
+			klog.V(0).Error(err, "cannot restore")
+		}
 	}
 }

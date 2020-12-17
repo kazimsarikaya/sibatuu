@@ -233,44 +233,59 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 		file_sys := info.Sys()
 		uid := file_sys.(*syscall.Stat_t).Uid
 		gid := file_sys.(*syscall.Stat_t).Gid
+		trimmedPath := file[len(path):]
+		if trimmedPath == "" {
+			trimmedPath = "."
+		}
+		klog.V(4).Infof("backup file %v", trimmedPath)
 		if info.Mode().IsRegular() { // normal file
-			rh.bh.createFile(file[len(path):], info.ModTime(), info.Size(), info.Mode(), uid, gid)
-			inf, err := os.Open(file)
-			if err != nil {
-				return err
-			}
-			for {
-				data := make([]byte, chunkSize)
-				rcnt, err := inf.Read(data)
+			rh.bh.createFile(trimmedPath, info.ModTime(), info.Size(), info.Mode(), uid, gid)
+			changed, chunk_ids := rh.cache.isFileChangedOrGetChunkIds(trimmedPath, info)
+			if !changed {
+				for _, chunk_id := range chunk_ids {
+					rh.bh.addChunkIdToFile(chunk_id)
+				}
+				klog.V(5).Infof("file %v not changed, added from cache", info.Name())
+			} else {
+				klog.V(5).Infof("file %v changed, backup started", info.Name())
+				inf, err := os.Open(file)
 				if err != nil {
-					if err == io.EOF {
-						break
-					}
 					return err
 				}
-				data = data[:rcnt]
-				sum := sha256.Sum256(data)
-				var chunk_id uint64
-				chunk_id, res := rh.cache.findChunkId(sum[:])
-				if !res {
-					chunk_id, err = rh.ch.append(data, sum[:])
-					last_chunk_id = chunk_id
-					rh.cache.appendDirtyChunkId(chunk_id, sum[:])
+				for {
+					data := make([]byte, chunkSize)
+					rcnt, err := inf.Read(data)
 					if err != nil {
-						klog.V(0).Error(err, "cannot append chunk")
+						if err == io.EOF {
+							break
+						}
 						return err
 					}
+					data = data[:rcnt]
+					sum := sha256.Sum256(data)
+					var chunk_id uint64
+					chunk_id, res := rh.cache.findChunkId(sum[:])
+					if !res {
+						chunk_id, err = rh.ch.append(data, sum[:])
+						last_chunk_id = chunk_id
+						rh.cache.appendDirtyChunkId(chunk_id, sum[:])
+						if err != nil {
+							klog.V(0).Error(err, "cannot append chunk")
+							return err
+						}
+					}
+					rh.bh.addChunkIdToFile(chunk_id)
 				}
-				rh.bh.addChunkIdToFile(chunk_id)
+				klog.V(5).Infof("backup of file %v ended", info.Name())
 			}
 			rh.bh.closeFile()
 		} else if info.Mode()&os.ModeSymlink != 0 { // symlink
-			rh.bh.createFile(file[len(path):], info.ModTime(), 0, info.Mode(), uid, gid)
+			rh.bh.createFile(trimmedPath, info.ModTime(), 0, info.Mode(), uid, gid)
 			symt, _ := os.Readlink(file)
 			rh.bh.setSymTarget(symt)
 			rh.bh.closeFile()
 		} else if info.Mode().IsDir() { // directory
-			rh.bh.createFile(file[len(path):], info.ModTime(), 0, info.Mode(), uid, gid)
+			rh.bh.createFile(trimmedPath, info.ModTime(), 0, info.Mode(), uid, gid)
 			rh.bh.closeFile()
 		}
 		return nil
@@ -297,7 +312,7 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 		klog.V(5).Error(err, "cannot update repository info")
 		return err
 	}
-
+	klog.V(4).Infof("backup finished. backup id %v backup tag %v", bid, tag)
 	return nil
 }
 
@@ -342,7 +357,8 @@ func (rh *RepositoryHelper) ListBackupWithTag(tag string) {
 
 func (rh *RepositoryHelper) listBackup(backup *Backup) {
 	if backup == nil {
-		klog.V(0).Infof("backup not found")
+		klog.V(0).Error(errors.New("backup not found"), "cannot list backup content")
+		return
 	}
 	t := prettytable.NewWriter()
 	t.SetOutputMirror(os.Stdout)
@@ -371,4 +387,183 @@ func (rh *RepositoryHelper) listBackup(backup *Backup) {
 		t.AppendRow(prettytable.Row{fid, fi.FileName, ptypes.TimestampString(fi.LastModified), fi.Uid, fi.Gid, item_type, mode & os.ModePerm, len(fi.ChunkIds), fi.FileLength})
 	}
 	t.Render()
+}
+
+func (rh *RepositoryHelper) RestoreItemsWithBid(destination string, bid uint64, override bool) error {
+	backup := rh.bh.getBackupById(bid)
+	return rh.restoreItems(destination, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreItemWithFidWithBid(destination string, fid int, bid uint64, override bool) error {
+	backup := rh.bh.getBackupById(bid)
+	fi := rh.getFileInfoWithFid(backup, fid)
+	return rh.restoreItem(destination, fi, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreItemWithFnameWithBid(destination, fname string, bid uint64, override bool) error {
+	backup := rh.bh.getBackupById(bid)
+	fi := rh.getFileInfoWithFname(backup, fname)
+	return rh.restoreItem(destination, fi, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreItemsWithBtag(destination, tag string, override bool) error {
+	backup := rh.bh.getBackupByTag(tag)
+	return rh.restoreItems(destination, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreItemWithFidWithBtag(destination string, fid int, tag string, override bool) error {
+	backup := rh.bh.getBackupByTag(tag)
+	fi := rh.getFileInfoWithFid(backup, fid)
+	return rh.restoreItem(destination, fi, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreItemWithFnameWithBtag(destination, fname, tag string, override bool) error {
+	backup := rh.bh.getBackupByTag(tag)
+	fi := rh.getFileInfoWithFname(backup, fname)
+	return rh.restoreItem(destination, fi, backup, override)
+}
+
+func (rh *RepositoryHelper) getFileInfoWithFid(backup *Backup, fid int) *Backup_FileInfo {
+	for id, fi := range backup.FileInfos {
+		if id == fid {
+			return fi
+		}
+	}
+	return nil
+}
+
+func (rh *RepositoryHelper) getFileInfoWithFname(backup *Backup, fname string) *Backup_FileInfo {
+	for _, fi := range backup.FileInfos {
+		if fi.FileName == fname {
+			return fi
+		}
+	}
+	return nil
+}
+
+func (rh *RepositoryHelper) restoreItems(destination string, backup *Backup, override bool) error {
+	for _, fi := range backup.FileInfos {
+		if err := rh.restoreItem(destination, fi, backup, override); err != nil {
+			return err
+		}
+	}
+	return rh.fixMtimes(destination, backup)
+}
+
+func (rh *RepositoryHelper) fixMtimes(destination string, backup *Backup) error {
+	for _, fi := range backup.FileInfos {
+		t, _ := ptypes.Timestamp(fi.LastModified)
+		path2Fix := destination + "/" + fi.FileName
+		os.Chtimes(path2Fix, t, t)
+	}
+	return nil
+}
+
+func (rh *RepositoryHelper) restoreItem(destination string, fi *Backup_FileInfo, backup *Backup, override bool) error {
+	if fi == nil {
+		return errors.New("file not found")
+	}
+	targetItem := fi.FileName
+	mode := os.FileMode(fi.Mode)
+	t, _ := ptypes.Timestamp(fi.LastModified)
+	if targetItem == "." {
+		if _, err := os.Stat(destination); err != nil {
+			if os.IsNotExist(err) {
+				os.MkdirAll(destination, mode)
+				os.Chtimes(destination, t, t)
+				os.Chown(destination, int(fi.Uid), int(fi.Gid))
+				return nil
+			}
+			klog.V(5).Error(err, "unknown error at stat %v", destination)
+			return err
+		}
+		return nil
+	}
+	targetItemDir := filepath.Dir(targetItem)
+	p_fi := rh.getFileInfoWithFname(backup, targetItemDir)
+	if err := rh.restoreItem(destination, p_fi, backup, override); err != nil {
+		klog.V(5).Error(err, "error creating parent dir "+targetItemDir)
+		return err
+	}
+	path2C := destination + "/" + targetItem
+
+	if _, err := os.Stat(path2C); err != nil {
+		if os.IsNotExist(err) {
+			if mode.IsRegular() {
+				if err := rh.restoreFileData(path2C, fi); err != nil {
+					klog.V(5).Error(err, "cannot restore file data "+path2C)
+					return err
+				}
+			} else if mode&os.ModeSymlink != 0 {
+				if err := os.Symlink(*fi.SymTargetFileName, path2C); err != nil {
+					klog.V(5).Error(err, "cannot restore symlink "+path2C)
+					return err
+				}
+			} else if mode.IsDir() {
+				if err := os.MkdirAll(path2C, mode); err != nil {
+					klog.V(5).Error(err, "cannot restore directory "+path2C)
+					return err
+				}
+			} else {
+				return errors.New("unknown file type at backup")
+			}
+			os.Chtimes(path2C, t, t)
+			os.Chown(path2C, int(fi.Uid), int(fi.Gid))
+			return nil
+		}
+		return err
+	} else if override {
+		if mode.IsDir() {
+			return nil
+		}
+		if err := os.Remove(path2C); err != nil {
+			return err
+		}
+		if mode.IsRegular() {
+			if err := rh.restoreFileData(path2C, fi); err != nil {
+				klog.V(5).Error(err, "cannot restore file data "+path2C)
+				return err
+			}
+		} else if mode&os.ModeSymlink != 0 {
+			if err := os.Symlink(*fi.SymTargetFileName, path2C); err != nil {
+				klog.V(5).Error(err, "cannot restore symlink "+path2C)
+				return err
+			}
+		} else {
+			return errors.New("unknown file type at backup")
+		}
+		os.Chtimes(path2C, t, t)
+		os.Chown(path2C, int(fi.Uid), int(fi.Gid))
+	} else {
+		if !mode.IsDir() {
+			klog.V(5).Infof("destination item exists and not overriden", path2C)
+		}
+	}
+	return nil
+}
+
+func (rh *RepositoryHelper) restoreFileData(dest string, fi *Backup_FileInfo) error {
+	outf, err := os.Create(dest)
+	if err != nil {
+		klog.V(5).Error(err, "cannot create file "+dest)
+		return err
+	}
+	for _, cid := range fi.ChunkIds {
+		bf, start, len := rh.cache.getBlobFileOfChunkId(cid)
+		if bf == nil {
+			return errors.New(fmt.Sprintf("cannot find blob file for chunk id %v", cid))
+		}
+		data, err := rh.ch.getChunkData(*bf, start, len)
+		if err != nil {
+			klog.V(5).Error(err, fmt.Sprintf("chunk data not received for file %v for chunk id %v", dest, cid))
+			return err
+		}
+		if data == nil {
+			return errors.New(fmt.Sprintf("cannot get data for chunk id %v", cid))
+		}
+		outf.Write(data)
+		klog.V(6).Infof("chunk id %v restored for %v", cid, dest)
+	}
+	outf.Close()
+	return nil
 }

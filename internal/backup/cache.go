@@ -19,6 +19,7 @@ package backup
 import (
 	"crypto/sha256"
 	proto "github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
 	"os"
@@ -86,7 +87,7 @@ func (c *Cache) findChunkId(sum []byte) (uint64, bool) {
 }
 
 func (c *Cache) fillCache() error {
-	cinfos, err := c.ch.getAllChunks()
+	cinfos, err := c.ch.getAllChunkInfos()
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all chunks")
 		return err
@@ -152,4 +153,36 @@ func (c *Cache) getTotalChunkSize() uint64 {
 		}
 	}
 	return total_size
+}
+
+func (c *Cache) isFileChangedOrGetChunkIds(trimmedPath string, info os.FileInfo) (bool, []uint64) {
+	if c.LocalCache.LastBackup == nil {
+		klog.V(6).Infof("any backup found, not returning old chunk ids")
+		return true, nil
+	}
+	for _, fi := range c.LocalCache.LastBackup.FileInfos {
+		if fi.FileName == trimmedPath {
+			klog.V(6).Infof("file %v found at cache, checking it", trimmedPath)
+			ts, _ := ptypes.TimestampProto(info.ModTime())
+			if fi.LastModified.Seconds == ts.Seconds && fi.LastModified.Nanos == ts.Nanos && fi.FileLength == uint64(info.Size()) {
+				klog.V(6).Infof("file %v not changed, returning its' chunk ids from cache", trimmedPath)
+				return false, fi.ChunkIds
+			}
+			klog.V(6).Infof("file %v changed, not returning old chunk ids", trimmedPath)
+			return true, nil
+		}
+	}
+	klog.V(6).Infof("file %v not found at cache, not returning old chunk ids", trimmedPath)
+	return true, nil
+}
+
+func (c *Cache) getBlobFileOfChunkId(chunk_id uint64) (*string, uint64, uint64) {
+	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
+		for _, ci := range cifm.ChunkInfos {
+			if ci.ChunkId == chunk_id {
+				return &cifm.ChunkFile, ci.Start, ci.Length
+			}
+		}
+	}
+	return nil, 0, 0
 }

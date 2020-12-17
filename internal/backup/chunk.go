@@ -18,6 +18,7 @@ package backup
 
 import (
 	"errors"
+	"fmt"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
@@ -40,7 +41,7 @@ func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, err
 	return ch, nil
 }
 
-func (ch *ChunkHelper) getAllChunks() (map[string][]*ChunkInfo, error) {
+func (ch *ChunkHelper) getAllChunkInfos() (map[string][]*ChunkInfo, error) {
 	cinfos := make(map[string][]*ChunkInfo)
 	_, err := ch.getAllBlobInfos(func(data []byte, pos, datalen int64, blobFile string) (BlobInterface, error) {
 		var chunk_infos ChunkInfos
@@ -94,6 +95,7 @@ func (ch *ChunkHelper) append(chunk_data, sum []byte) (uint64, error) {
 		}
 		return 0, err
 	}
+	ch.currentBlobSize += int64(wl)
 	ch.nextChunkId += 1
 	ch.currentBlobInfo.Append(ci)
 	return ci.ChunkId, err
@@ -104,6 +106,32 @@ func (ch *ChunkHelper) startChunkSession() error {
 		var cis []*ChunkInfo
 		return &ChunkInfos{ChunkInfos: cis}
 	})
+}
+
+func (ch *ChunkHelper) getChunkData(blobFile string, start, length uint64) ([]byte, error) {
+	r, err := ch.fs.Open(chunksDir + "/" + blobFile)
+	if err != nil {
+		klog.V(6).Error(err, "cannot open blob file "+blobFile)
+		return nil, err
+	}
+	r.Seek(int64(start), 0)
+	data := make([]byte, length)
+	rc, err := r.Read(data)
+	if err != nil {
+		klog.V(6).Error(err, fmt.Sprintf("cannot read requested data from %v start %v len %v", blobFile, start, length))
+		return nil, err
+	}
+	if uint64(rc) != length {
+		return nil, errors.New("cannot read data as requested")
+	}
+	r.Close()
+	cdata, err := decoder.DecodeAll(data, nil)
+	if err != nil {
+		klog.V(6).Error(err, fmt.Sprintf("cannot decompress chunk data from %v start %v len %v", blobFile, start, length))
+		return nil, err
+	}
+	klog.V(6).Infof("data decompressed from %v start %v len %v", blobFile, start, length)
+	return cdata, nil
 }
 
 func (ci *ChunkInfos) IsEmpty() bool {

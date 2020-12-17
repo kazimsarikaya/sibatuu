@@ -53,9 +53,6 @@ func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) (*ptimes
 }
 
 func (bh *BackupHelper) createFile(fileName string, mt time.Time, len int64, mode os.FileMode, uid, gid uint32) {
-	if fileName == "" {
-		fileName = "."
-	}
 	ts, _ := ptypes.TimestampProto(mt)
 	bh.currentFile = &Backup_FileInfo{
 		FileName:     fileName,
