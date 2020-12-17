@@ -19,8 +19,11 @@ package backup
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	prettytable "github.com/jedib0t/go-pretty/v6/table"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	"io"
 	klog "k8s.io/klog/v2"
@@ -43,12 +46,12 @@ type RepositoryHelper struct {
 
 func NewRepositoy(fs backupfs.BackupFS) (*RepositoryHelper, error) {
 	sum := [32]byte{}
-	r := RepositoryHelper{}
-	r.CreateTime = ptypes.TimestampNow()
-	r.LastUpdated = ptypes.TimestampNow()
-	r.Checksum = sum[:]
-	r.fs = fs
-	return &r, nil
+	rh := RepositoryHelper{}
+	rh.CreateTime = ptypes.TimestampNow()
+	rh.LastUpdated = ptypes.TimestampNow()
+	rh.Checksum = sum[:]
+	rh.fs = fs
+	return &rh, nil
 }
 
 func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, error) {
@@ -85,80 +88,105 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 		return nil, err
 	}
 
-	r := RepositoryHelper{}
+	rh := RepositoryHelper{}
 
-	if err = proto.Unmarshal(data, &r); err != nil {
+	if err = proto.Unmarshal(data, &rh); err != nil {
 		klog.V(0).Error(err, "cannot build repoinfo")
 		return nil, err
 	}
 
-	sum := r.GetChecksum()
+	sum := rh.GetChecksum()
+	klog.V(6).Infof("checksum %v", sum)
 
 	zerosum := [32]byte{}
-	r.Checksum = zerosum[:]
-	postout, err := proto.Marshal(&r)
+	rh.Checksum = zerosum[:]
+	postout, err := proto.Marshal(&rh)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode repository info")
 		return nil, err
 	}
 	testsum := sha256.Sum256(postout)
+	klog.V(6).Infof("testsum %v", testsum)
 	for i := range sum {
 		if sum[i] != testsum[i] {
 			klog.V(0).Error(err, "checksum mismatch")
-			return nil, err
+			return nil, errors.New("checksum mismatch")
 		}
 	}
-	r.Checksum = sum[:]
+	rh.Checksum = sum[:]
 
-	r.fs = fs
-	r.ch, err = NewChunkHelper(fs, r.GetLastChunkId()+1)
+	rh.fs = fs
+	rh.ch, err = NewChunkHelper(fs, rh.GetLastChunkId()+1)
 	if err != nil {
 		klog.V(5).Error(err, "cannot create chunk helper")
 		return nil, err
 	}
 
-	r.bh, err = NewBackupHelper(r.fs)
+	rh.bh, err = NewBackupHelper(rh.fs)
 	if err != nil {
 		klog.V(0).Error(err, "cannot create backup helper")
 		return nil, err
 	}
 
-	cache, err := NewCache(fs, cacheDir, r.ch, r.bh)
+	cache, err := NewCache(fs, cacheDir, rh.ch, rh.bh)
 	if err != nil {
 		klog.V(0).Error(err, "error occured while creating cache")
 		return nil, err
 	}
-	r.cache = cache
+	rh.cache = cache
 
-	klog.V(5).Infof("repoinfo %v", r)
-	return &r, nil
+	klog.V(5).Infof("repoinfo %v", rh)
+	return &rh, nil
 }
 
-func (r *RepositoryHelper) Initialize() error {
-	if err := r.fs.Mkdirs("."); err != nil {
+func (rh *RepositoryHelper) Initialize() error {
+	if err := rh.fs.Mkdirs("."); err != nil {
 		klog.V(0).Error(err, "cannot create repository folder")
 		return err
 	}
 
-	preout, err := proto.Marshal(r)
+	if err := rh.fs.Mkdirs(chunksDir); err != nil {
+		klog.V(0).Error(err, "cannot create chunks folder")
+		return err
+	}
+
+	if err := rh.fs.Mkdirs(backupsDir); err != nil {
+		klog.V(0).Error(err, "cannot create chunks folder")
+		return err
+	}
+
+	if err := rh.writeData(); err != nil {
+		klog.V(0).Error(err, "cannot init repository")
+		return err
+	}
+
+	return nil
+}
+
+func (rh *RepositoryHelper) writeData() error {
+	zerosum := [32]byte{}
+	rh.Checksum = zerosum[:]
+	klog.V(5).Infof("repo data %v", rh)
+	preout, err := proto.Marshal(rh)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode repository info")
 		return err
 	}
-	klog.V(5).Infof("protobuf %v", preout)
+	klog.V(6).Infof("protobuf %v", preout)
 
 	sum := sha256.Sum256(preout)
-	r.Checksum = sum[:]
-	klog.V(5).Infof("sum %v", r.Checksum)
+	rh.Checksum = sum[:]
+	klog.V(5).Infof("sum %v", rh.Checksum)
+	klog.V(5).Infof("repo data with new checksum %v", rh)
 
-	out, err := proto.Marshal(r)
+	out, err := proto.Marshal(rh)
 	if err != nil {
 		klog.V(0).Error(err, "cannot encode repository info with checksum")
 		return err
 	}
-	klog.V(5).Infof("protobuf %v", out)
+	klog.V(6).Infof("protobuf %v", out)
 
-	writer, err := r.fs.Create(repoInfo)
+	writer, err := rh.fs.Create(repoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot create repoinfo")
 		return err
@@ -182,39 +210,31 @@ func (r *RepositoryHelper) Initialize() error {
 		return err
 	}
 
-	if err = r.fs.Mkdirs(chunksDir); err != nil {
-		klog.V(0).Error(err, "cannot create chunks folder")
-		return err
-	}
-
-	if err = r.fs.Mkdirs(backupsDir); err != nil {
-		klog.V(0).Error(err, "cannot create chunks folder")
-		return err
-	}
-
-	klog.V(0).Infof("repo created")
+	klog.V(0).Infof("repo data writen")
 	return nil
 }
 
-func (r *RepositoryHelper) Backup(path, tag string) error {
-	err := r.ch.startChunkSession()
+func (rh *RepositoryHelper) Backup(path, tag string) error {
+	err := rh.ch.startChunkSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot start chunk session")
 		return err
 	}
-
-	err = r.bh.startBackupSession(r.GetLastBackupId()+1, tag)
+	var bid = rh.GetLastBackupId() + 1
+	ts, err := rh.bh.startBackupSession(bid, tag)
 	if err != nil {
 		klog.V(5).Error(err, "cannot start backup session")
 		return err
 	}
 
+	var last_chunk_id uint64
+
 	err = filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
 		file_sys := info.Sys()
 		uid := file_sys.(*syscall.Stat_t).Uid
 		gid := file_sys.(*syscall.Stat_t).Gid
-		r.bh.createFile(file[len(path):], info.ModTime(), info.Size(), info.Mode(), uid, gid)
-		if !info.IsDir() {
+		if info.Mode().IsRegular() { // normal file
+			rh.bh.createFile(file[len(path):], info.ModTime(), info.Size(), info.Mode(), uid, gid)
 			inf, err := os.Open(file)
 			if err != nil {
 				return err
@@ -231,33 +251,124 @@ func (r *RepositoryHelper) Backup(path, tag string) error {
 				data = data[:rcnt]
 				sum := sha256.Sum256(data)
 				var chunk_id uint64
-				chunk_id, res := r.cache.findChunkId(sum[:])
+				chunk_id, res := rh.cache.findChunkId(sum[:])
 				if !res {
-					chunk_id, err = r.ch.append(data, sum[:])
-					r.cache.appendDirtyChunkId(chunk_id, sum[:])
+					chunk_id, err = rh.ch.append(data, sum[:])
+					last_chunk_id = chunk_id
+					rh.cache.appendDirtyChunkId(chunk_id, sum[:])
 					if err != nil {
 						klog.V(0).Error(err, "cannot append chunk")
 						return err
 					}
 				}
-				r.bh.addChunkIdToFile(chunk_id)
+				rh.bh.addChunkIdToFile(chunk_id)
 			}
+			rh.bh.closeFile()
+		} else if info.Mode()&os.ModeSymlink != 0 { // symlink
+			rh.bh.createFile(file[len(path):], info.ModTime(), 0, info.Mode(), uid, gid)
+			symt, _ := os.Readlink(file)
+			rh.bh.setSymTarget(symt)
+			rh.bh.closeFile()
+		} else if info.Mode().IsDir() { // directory
+			rh.bh.createFile(file[len(path):], info.ModTime(), 0, info.Mode(), uid, gid)
+			rh.bh.closeFile()
 		}
-		r.bh.closeFile()
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	err = r.ch.endSession()
+	err = rh.ch.endSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot end chunk helper")
 	}
 
-	err = r.bh.endSession()
+	err = rh.bh.endSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot end backup helper")
 	}
-	return err
+	rh.LastBackupId = bid
+	rh.LastChunkId = last_chunk_id
+	rh.LastUpdated = ts
+
+	err = rh.writeData()
+	if err != nil {
+		klog.V(5).Error(err, "cannot update repository info")
+		return err
+	}
+
+	return nil
+}
+
+func (rh *RepositoryHelper) ListBackups() error {
+	backups, err := rh.bh.getAllBackups()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get all backups")
+		return err
+	}
+	t := prettytable.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.AppendHeader(prettytable.Row{"#", "Backup Time", "Tag", "Item Count", "chunk count", "Total Size"})
+	var total_chunk_count float64 = 0
+	for _, backup := range backups {
+		var total_len uint64 = 0
+		var chunk_count int = 0
+		for _, fi := range backup.FileInfos {
+			total_len += fi.FileLength
+			chunk_count += len(fi.ChunkIds)
+		}
+		total_chunk_count += float64(chunk_count)
+		t.AppendRow(prettytable.Row{backup.BackupId, ptypes.TimestampString(backup.BackupTime), backup.Tag, len(backup.FileInfos), chunk_count, total_len})
+	}
+	t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
+	dedup_ratio := 1 - float64(rh.cache.getChunkCount())/total_chunk_count
+	t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
+	compress_ratio := 1 - float64(rh.cache.getTotalChunkSize())/(float64(rh.cache.getChunkCount())*float64(chunkSize))
+	t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
+	t.Render()
+	return nil
+}
+
+func (rh *RepositoryHelper) ListBackupWithId(bid uint64) {
+	backup := rh.bh.getBackupById(bid)
+	rh.listBackup(backup)
+}
+
+func (rh *RepositoryHelper) ListBackupWithTag(tag string) {
+	backup := rh.bh.getBackupByTag(tag)
+	rh.listBackup(backup)
+}
+
+func (rh *RepositoryHelper) listBackup(backup *Backup) {
+	if backup == nil {
+		klog.V(0).Infof("backup not found")
+	}
+	t := prettytable.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.AppendHeader(prettytable.Row{"#", "Backup Time", "Tag", "Item Count", "chunk count", "Total Size"})
+	var total_len uint64 = 0
+	var chunk_count int = 0
+	for _, fi := range backup.FileInfos {
+		total_len += fi.FileLength
+		chunk_count += len(fi.ChunkIds)
+	}
+	t.AppendRow(prettytable.Row{backup.BackupId, ptypes.TimestampString(backup.BackupTime), backup.Tag, len(backup.FileInfos), chunk_count, total_len})
+	t.Render()
+
+	t = prettytable.NewWriter()
+	t.SetOutputMirror(os.Stdout)
+	t.AppendHeader(prettytable.Row{"#", "File Name", "Last Modified", "Owner", "Group", "Type", "Perms", "Chunk Count", "Length"})
+	for fid, fi := range backup.FileInfos {
+		mode := os.FileMode(fi.Mode)
+		var item_type string = "F"
+		if mode&os.ModeSymlink != 0 {
+			item_type = "S"
+		}
+		if mode&os.ModeDir != 0 {
+			item_type = "D"
+		}
+		t.AppendRow(prettytable.Row{fid, fi.FileName, ptypes.TimestampString(fi.LastModified), fi.Uid, fi.Gid, item_type, mode & os.ModePerm, len(fi.ChunkIds), fi.FileLength})
+	}
+	t.Render()
 }

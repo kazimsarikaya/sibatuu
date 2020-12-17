@@ -125,3 +125,15 @@ func (c *Cache) fillCache() error {
 	outf.Close()
 	return nil
 }
+
+func (c *Cache) getChunkCount() int {
+	return len(c.LocalCache.ChunkInfos)
+}
+
+func (c *Cache) getTotalChunkSize() uint64 {
+	var total_size uint64 = 0
+	for _, ci := range c.LocalCache.ChunkInfos {
+		total_size += ci.Length
+	}
+	return total_size
+}

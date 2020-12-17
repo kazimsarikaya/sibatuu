@@ -19,6 +19,7 @@ package backup
 import (
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	ptimestamp "github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
 	"os"
@@ -39,14 +40,22 @@ func NewBackupHelper(fs backupfs.BackupFS) (*BackupHelper, error) {
 	return bh, nil
 }
 
-func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) error {
+func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) (*ptimestamp.Timestamp, error) {
+	t := time.Now()
+	ts, _ := ptypes.TimestampProto(t)
+	if tag == "" {
+		tag = t.Format(time.RFC3339)
+	}
 	err := bh.startSession(func() BlobInterface {
-		return &Backup{BackupTime: ptypes.TimestampNow(), BackupId: backupId, Tag: tag}
+		return &Backup{BackupTime: ts, BackupId: backupId, Tag: tag}
 	})
-	return err
+	return ts, err
 }
 
 func (bh *BackupHelper) createFile(fileName string, mt time.Time, len int64, mode os.FileMode, uid, gid uint32) {
+	if fileName == "" {
+		fileName = "."
+	}
 	ts, _ := ptypes.TimestampProto(mt)
 	bh.currentFile = &Backup_FileInfo{
 		FileName:     fileName,
@@ -70,6 +79,12 @@ func (bh *BackupHelper) addChunkIdToFile(chunk_id uint64) {
 	}
 }
 
+func (bh *BackupHelper) setSymTarget(target string) {
+	if bh.currentFile != nil {
+		bh.currentFile.SymTargetFileName = &target
+	}
+}
+
 func (bh *BackupHelper) getAllBackups() ([]*Backup, error) {
 	rawresult, err := bh.getAllBlobInfos(func(data []byte, pos, datalen int64) (BlobInterface, error) {
 		var backup Backup
@@ -87,6 +102,9 @@ func (bh *BackupHelper) getAllBackups() ([]*Backup, error) {
 	for i := range rawresult {
 		result[i] = rawresult[i].(*Backup)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].GetBackupTime().Seconds < result[j].GetBackupTime().Seconds
+	})
 	return result, nil
 }
 
@@ -95,13 +113,36 @@ func (bh *BackupHelper) getLastBackup() (*Backup, error) {
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all backups")
 	}
-	sort.Slice(allBackups, func(i, j int) bool {
-		return allBackups[i].GetBackupTime().Seconds < allBackups[j].GetBackupTime().Seconds
-	})
 	if len(allBackups) > 0 {
 		return allBackups[len(allBackups)-1], nil
 	}
 	return nil, nil
+}
+
+func (bh *BackupHelper) getBackupById(bid uint64) *Backup {
+	allBackups, err := bh.getAllBackups()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get all backups")
+	}
+	for _, b := range allBackups {
+		if b.BackupId == bid {
+			return b
+		}
+	}
+	return nil
+}
+
+func (bh *BackupHelper) getBackupByTag(tag string) *Backup {
+	allBackups, err := bh.getAllBackups()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get all backups")
+	}
+	for _, b := range allBackups {
+		if b.Tag == tag {
+			return b
+		}
+	}
+	return nil
 }
 
 func (b *Backup) IsEmpty() bool {

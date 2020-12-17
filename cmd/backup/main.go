@@ -24,15 +24,17 @@ import (
 	klog "k8s.io/klog/v2"
 	"os"
 	"path"
-	"time"
 )
 
 var (
-	repository string = ""
-	source     string = ""
-	cacheDir   string = ".cache"
-	backupTag  string = ""
-	initRepo   bool   = false
+	repository   string = ""
+	source       string = ""
+	cacheDir     string = ".cache"
+	backupTag    string = ""
+	initRepo     bool   = false
+	listBackup   bool   = false
+	createBackup bool   = false
+	backupId     uint64 = 0
 
 	showVersion = flag.Bool("version", false, "Show version.")
 
@@ -52,10 +54,14 @@ func init() {
 	flag.StringVar(&cacheDir, "c", ".cache", "Cache directory")
 	flag.StringVar(&cacheDir, "cache", ".cache", "Cache directory")
 
-	flag.StringVar(&backupTag, "t", "", "Backup Tag")
-	flag.StringVar(&backupTag, "tag", "", "Backup Tag")
+	flag.StringVar(&backupTag, "t", "", "Backup Tag for backup/listing/restoring")
+	flag.StringVar(&backupTag, "tag", "", "Backup Tag for backup/listing/restoring")
+	flag.Uint64Var(&backupId, "bid", 0, "Backup Id for listing/restoring")
+	flag.Uint64Var(&backupId, "backupid", 0, "Backup Id for listing/restoring")
 
 	flag.BoolVar(&initRepo, "init", false, "Init repository")
+	flag.BoolVar(&listBackup, "list", false, "List backups or given backup content")
+	flag.BoolVar(&createBackup, "backup", false, "Create backup")
 
 	flag.Set("logtostderr", "true")
 }
@@ -82,20 +88,37 @@ func main() {
 			klog.V(0).Error(err, "error occured while initialize repo "+repository)
 			os.Exit(1)
 		}
-	} else {
+		return
+	}
+	if createBackup {
 		r, err := backup.OpenRepositoy(fs, cacheDir)
 		if err != nil {
 			klog.V(0).Error(err, "error occured while opening repo "+repository)
 			os.Exit(1)
-		}
-		if backupTag == "" {
-			t := time.Now()
-			backupTag = t.Format(time.RFC3339)
 		}
 		err = r.Backup(source, backupTag)
 		if err != nil {
 			klog.V(0).Error(err, "error occured while opening repo "+repository)
 			os.Exit(1)
 		}
+		return
+	}
+	if listBackup {
+		r, err := backup.OpenRepositoy(fs, cacheDir)
+		if err != nil {
+			klog.V(0).Error(err, "error occured while opening repo "+repository)
+			os.Exit(1)
+		}
+		if backupId == 0 && backupTag == "" {
+			r.ListBackups()
+		} else if backupId != 0 && backupTag == "" {
+			r.ListBackupWithId(backupId)
+		} else if backupId == 0 && backupTag != "" {
+			r.ListBackupWithTag(backupTag)
+		} else {
+			klog.V(0).Infof("cannot have bot id and tag")
+			os.Exit(1)
+		}
+		return
 	}
 }
