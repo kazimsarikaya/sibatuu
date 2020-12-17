@@ -40,16 +40,20 @@ func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, err
 	return ch, nil
 }
 
-func (ch *ChunkHelper) getAllChunks() ([]*ChunkInfo, error) {
-	var cinfos []*ChunkInfo
-	_, err := ch.getAllBlobInfos(func(data []byte, pos, datalen int64) (BlobInterface, error) {
+func (ch *ChunkHelper) getAllChunks() (map[string][]*ChunkInfo, error) {
+	cinfos := make(map[string][]*ChunkInfo)
+	_, err := ch.getAllBlobInfos(func(data []byte, pos, datalen int64, blobFile string) (BlobInterface, error) {
 		var chunk_infos ChunkInfos
 		err := proto.Unmarshal(data, &chunk_infos)
 		if err != nil {
 			klog.V(5).Infof("cannot unmarshal chunkinfos at location %v length %v", pos, datalen)
 			return nil, err
 		}
-		cinfos = append(cinfos, chunk_infos.GetChunkInfos()...)
+		if _, ok := cinfos[blobFile]; !ok {
+			var val []*ChunkInfo
+			cinfos[blobFile] = val
+		}
+		cinfos[blobFile] = append(cinfos[blobFile], chunk_infos.GetChunkInfos()...)
 		return &chunk_infos, nil
 	})
 	if err != nil {

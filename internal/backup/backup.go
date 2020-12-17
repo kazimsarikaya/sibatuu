@@ -86,7 +86,7 @@ func (bh *BackupHelper) setSymTarget(target string) {
 }
 
 func (bh *BackupHelper) getAllBackups() ([]*Backup, error) {
-	rawresult, err := bh.getAllBlobInfos(func(data []byte, pos, datalen int64) (BlobInterface, error) {
+	rawresult, err := bh.getAllBlobInfos(func(data []byte, pos, datalen int64, blobFile string) (BlobInterface, error) {
 		var backup Backup
 		err := proto.Unmarshal(data, &backup)
 		if err != nil {

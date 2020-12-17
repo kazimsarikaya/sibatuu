@@ -57,15 +57,17 @@ func (c *Cache) appendDirtyChunkId(chunkId uint64, sum []byte) {
 }
 
 func (c *Cache) findChunkId(sum []byte) (uint64, bool) {
-	for _, ci := range c.LocalCache.GetChunkInfos() {
-		var found = true
-		for i := range sum {
-			if ci.Checksum[i] != sum[i] {
-				found = false
+	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
+		for _, ci := range cifm.ChunkInfos {
+			var found = true
+			for i := range sum {
+				if ci.Checksum[i] != sum[i] {
+					found = false
+				}
 			}
-		}
-		if found {
-			return ci.GetChunkId(), true
+			if found {
+				return ci.GetChunkId(), true
+			}
 		}
 	}
 
@@ -95,7 +97,15 @@ func (c *Cache) fillCache() error {
 		return err
 	}
 
-	c.LocalCache = &LocalCache{ChunkInfos: cinfos, LastBackup: backup}
+	var items []*LocalCache_ChunkInfoFileMap
+	for key, value := range cinfos {
+		items = append(items, &LocalCache_ChunkInfoFileMap{
+			ChunkFile:  key,
+			ChunkInfos: value,
+		})
+	}
+
+	c.LocalCache = &LocalCache{ChunkInfoFileMaps: items, LastBackup: backup}
 
 	preout, err := proto.Marshal(c.LocalCache)
 	if err != nil {
@@ -127,13 +137,19 @@ func (c *Cache) fillCache() error {
 }
 
 func (c *Cache) getChunkCount() int {
-	return len(c.LocalCache.ChunkInfos)
+	var total_count int = 0
+	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
+		total_count += len(cifm.ChunkInfos)
+	}
+	return total_count
 }
 
 func (c *Cache) getTotalChunkSize() uint64 {
 	var total_size uint64 = 0
-	for _, ci := range c.LocalCache.ChunkInfos {
-		total_size += ci.Length
+	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
+		for _, ci := range cifm.ChunkInfos {
+			total_size += ci.Length
+		}
 	}
 	return total_size
 }

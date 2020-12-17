@@ -59,7 +59,7 @@ type Blob struct {
 var encoder, _ = zstd.NewWriter(nil)
 var decoder, _ = zstd.NewReader(nil)
 
-type blobParser func(data []byte, pos, datalen int64) (BlobInterface, error)
+type blobParser func(data []byte, pos, datalen int64, blobFile string) (BlobInterface, error)
 type blobCreator func() BlobInterface
 
 func (b *Blob) getAllBlobInfos(parser blobParser) ([]BlobInterface, error) {
@@ -97,7 +97,7 @@ func (b *Blob) getAllBlobInfos(parser blobParser) ([]BlobInterface, error) {
 				klog.V(5).Error(err, "cannot decode block")
 				return nil, err
 			}
-			parsed, err := parser(objdata, pos, datalen)
+			parsed, err := parser(objdata, pos, datalen, blob_file)
 			if err != nil {
 				klog.V(5).Error(err, "cannot parse data")
 				return nil, err

@@ -67,7 +67,11 @@ message Repository {
 }
 
 message LocalCache {
-  repeated ChunkInfo chunk_infos = 1;
+  message ChunkInfoFileMap {
+    string chunk_file = 1;
+    repeated ChunkInfo chunk_infos = 2;
+  }
+  repeated ChunkInfoFileMap chunk_info_file_maps = 1;
   optional Backup last_backup = 2;
   bytes checksum = 3;
 }
