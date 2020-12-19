@@ -25,7 +25,6 @@ import (
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/runtime/protoiface"
-	"io"
 	klog "k8s.io/klog/v2"
 	"strconv"
 )
@@ -51,7 +50,7 @@ type Blob struct {
 	blobsDir        string
 	currentBlob     string
 	currentBlobSize int64
-	currentWriter   io.WriteCloser
+	currentWriter   backupfs.WriteCloseAborter
 	fs              backupfs.BackupFS
 	currentBlobInfo BlobInterface
 }
@@ -201,6 +200,13 @@ func (b *Blob) startSession(creator blobCreator) error {
 	return nil
 }
 
+func (b *Blob) abortSession() error {
+	if b.currentWriter != nil {
+		return b.currentWriter.Abort()
+	}
+	return nil
+}
+
 func (b *Blob) endSession() error {
 	if b.currentBlobInfo.IsEmpty() {
 		b.currentWriter.Close()
@@ -227,19 +233,18 @@ func (b *Blob) endSession() error {
 	_, err = writer.Write(out)
 	if err != nil {
 		klog.V(0).Error(err, "cannot write chunk infos")
-		return err
+		return b.currentWriter.Abort()
 	}
 
 	if _, err = writer.Write(repositoryHeader); err != nil {
 		klog.V(0).Error(err, "cannot write trailer header")
-		return err
+		return b.currentWriter.Abort()
 	}
 	lenarray := make([]byte, 8)
 	binary.LittleEndian.PutUint64(lenarray, uint64(len(out)))
 	if _, err = writer.Write(lenarray); err != nil {
 		klog.V(0).Error(err, "cannot write data len")
-		return err
+		return b.currentWriter.Abort()
 	}
-	writer.Close()
-	return nil
+	return writer.Close()
 }

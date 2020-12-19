@@ -196,18 +196,18 @@ func (rh *RepositoryHelper) writeData() error {
 	_, err = writer.Write(out)
 	if err != nil {
 		klog.V(0).Error(err, "cannot write repoinfo")
-		return err
+		return writer.Abort()
 	}
 
 	if _, err = writer.Write(repositoryHeader); err != nil {
 		klog.V(0).Error(err, "cannot write trailer header")
-		return err
+		return writer.Abort()
 	}
 	lenarray := make([]byte, 8)
 	binary.LittleEndian.PutUint64(lenarray, uint64(len(out)))
 	if _, err = writer.Write(lenarray); err != nil {
 		klog.V(0).Error(err, "cannot write data len")
-		return err
+		return writer.Abort()
 	}
 
 	klog.V(0).Infof("repo data writen")
@@ -257,9 +257,12 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 					rcnt, err := inf.Read(data)
 					if err != nil {
 						if err == io.EOF {
-							break
+							if rcnt <= 0 {
+								break
+							}
+						} else {
+							return err
 						}
-						return err
 					}
 					data = data[:rcnt]
 					sum := sha256.Sum256(data)
@@ -267,12 +270,12 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 					chunk_id, res := rh.cache.findChunkId(sum[:])
 					if !res {
 						chunk_id, err = rh.ch.append(data, sum[:])
-						last_chunk_id = chunk_id
-						rh.cache.appendDirtyChunkId(chunk_id, sum[:])
 						if err != nil {
 							klog.V(0).Error(err, "cannot append chunk")
 							return err
 						}
+						last_chunk_id = chunk_id
+						rh.cache.appendDirtyChunkId(chunk_id, sum[:])
 					}
 					rh.bh.addChunkIdToFile(chunk_id)
 				}
@@ -291,17 +294,22 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 		return nil
 	})
 	if err != nil {
+		rh.ch.abortSession()
+		rh.bh.abortSession()
 		return err
 	}
 
 	err = rh.ch.endSession()
 	if err != nil {
+		rh.bh.abortSession()
 		klog.V(5).Error(err, "cannot end chunk helper")
+		return err
 	}
 
 	err = rh.bh.endSession()
 	if err != nil {
-		klog.V(5).Error(err, "cannot end backup helper")
+		klog.V(5).Error(err, "cannot end backup helper, please rebackup")
+		return err
 	}
 	rh.LastBackupId = bid
 	rh.LastChunkId = last_chunk_id
@@ -309,7 +317,7 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 
 	err = rh.writeData()
 	if err != nil {
-		klog.V(5).Error(err, "cannot update repository info")
+		klog.V(0).Error(err, "cannot update repository info, please run fix")
 		return err
 	}
 	klog.V(4).Infof("backup finished. backup id %v backup tag %v", bid, tag)

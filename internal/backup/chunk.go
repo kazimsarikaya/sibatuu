@@ -93,7 +93,7 @@ func (ch *ChunkHelper) append(chunk_data, sum []byte) (uint64, error) {
 		if err == nil {
 			err = errors.New("written data length mismatch")
 		}
-		return 0, err
+		return 0, ch.abortSession()
 	}
 	ch.currentBlobSize += int64(wl)
 	ch.nextChunkId += 1

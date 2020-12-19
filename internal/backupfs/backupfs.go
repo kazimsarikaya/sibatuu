@@ -23,9 +23,9 @@ import (
 type BackupFS interface {
 	Mkdirs(path string) error
 	Delete(path string) error
-	Create(path string) (io.WriteCloser, error)
+	Create(path string) (WriteCloseAborter, error)
 	Open(path string) (ReadSeekCloser, error)
-	Append(path string) (io.WriteCloser, error)
+	Append(path string) (WriteCloseAborter, error)
 	List(path string) ([]string, error)
 	Length(path string) (int64, error)
 }
@@ -33,4 +33,14 @@ type BackupFS interface {
 type ReadSeekCloser interface {
 	io.ReadSeeker
 	io.Closer
+}
+
+type Aborter interface {
+	Abort() error
+}
+
+type WriteCloseAborter interface {
+	io.Writer
+	io.Closer
+	Aborter
 }

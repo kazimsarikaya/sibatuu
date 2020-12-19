@@ -41,16 +41,16 @@ func (fs *LocalBackupFS) Delete(path string) error {
 	return os.RemoveAll(fs.basePath + "/" + path)
 }
 
-func (fs *LocalBackupFS) Create(path string) (io.WriteCloser, error) {
-	return os.OpenFile(fs.basePath+"/"+path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+func (fs *LocalBackupFS) Create(path string) (WriteCloseAborter, error) {
+	return NewLocalWriteCloseAborter(fs.basePath+"/"+path, false)
 }
 
 func (fs *LocalBackupFS) Open(path string) (ReadSeekCloser, error) {
 	return os.OpenFile(fs.basePath+"/"+path, os.O_RDONLY, 0644)
 }
 
-func (fs *LocalBackupFS) Append(path string) (io.WriteCloser, error) {
-	return os.OpenFile(fs.basePath+"/"+path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+func (fs *LocalBackupFS) Append(path string) (WriteCloseAborter, error) {
+	return NewLocalWriteCloseAborter(fs.basePath+"/"+path, true)
 }
 
 func (fs *LocalBackupFS) List(path string) ([]string, error) {
@@ -76,4 +76,108 @@ func (fs *LocalBackupFS) Length(path string) (int64, error) {
 		return 0, err
 	}
 	return fi.Size(), nil
+}
+
+type LocalWriteCloseAborter struct {
+	path             string
+	append           bool
+	tempWriterCloser io.WriteCloser
+}
+
+func NewLocalWriteCloseAborter(path string, append bool) (WriteCloseAborter, error) {
+
+	tmpWC, err := os.OpenFile(path+"-tmp", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	return &LocalWriteCloseAborter{path: path, append: append, tempWriterCloser: tmpWC}, nil
+}
+
+func (wca *LocalWriteCloseAborter) Write(data []byte) (int, error) {
+	return wca.tempWriterCloser.Write(data)
+}
+
+func (wca *LocalWriteCloseAborter) Abort() error {
+	err := wca.tempWriterCloser.Close()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(wca.path + "-tmp")
+	return err
+}
+
+func (wca *LocalWriteCloseAborter) Close() error {
+	var err error
+	err = wca.tempWriterCloser.Close()
+	if err != nil {
+		return err
+	}
+
+	var fi os.FileInfo
+	var not_e bool = true
+	var oldlen int64 = 0
+	fi, err = os.Stat(wca.path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			os.Remove(wca.path + "-tmp")
+			return err
+		}
+	} else {
+		oldlen = fi.Size()
+		not_e = false
+	}
+
+	var w io.WriteCloser
+	if wca.append {
+		w, err = os.OpenFile(wca.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	} else {
+		w, err = os.OpenFile(wca.path, os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0644)
+	}
+	if err != nil {
+		os.Remove(wca.path + "-tmp")
+		return err
+	}
+
+	var r io.ReadCloser
+	r, err = os.OpenFile(wca.path+"-tmp", os.O_RDONLY, 0644)
+	if err != nil {
+		os.Remove(wca.path + "-tmp")
+		return err
+	}
+
+	var twc int64 = 0
+	var wc, rc int = 0, 0
+	for {
+		data := make([]byte, 128<<10)
+		rc, err = r.Read(data)
+		if err != nil {
+			if err == io.EOF {
+				if rc > 0 {
+					wc, err = w.Write(data[:rc])
+					twc += int64(wc)
+				}
+				err = nil
+			}
+			break
+		}
+		if rc > 0 {
+			wc, err = w.Write(data[:rc])
+			twc += int64(wc)
+			if err != nil {
+				break
+			}
+		} else {
+			break
+		}
+	}
+	r.Close()
+	w.Close()
+	os.Remove(wca.path + "-tmp")
+	if err != nil {
+		klog.V(6).Error(err, "cannot write to the original destination")
+		if !not_e {
+			err = os.Truncate(wca.path, oldlen)
+		}
+	}
+	return err
 }
