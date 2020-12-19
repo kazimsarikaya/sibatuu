@@ -22,18 +22,12 @@ import (
 	"errors"
 	"fmt"
 	proto "github.com/golang/protobuf/proto"
+	. "github.com/kazimsarikaya/backup/internal"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	"github.com/klauspost/compress/zstd"
 	"google.golang.org/protobuf/runtime/protoiface"
 	klog "k8s.io/klog/v2"
 	"strconv"
-)
-
-const (
-	chunksDir   string = "chunks"
-	backupsDir  string = "backups"
-	maxBlobSize int64  = 128 << 20
-	chunkSize   int64  = 4 << 10
 )
 
 type BlobInterface interface {
@@ -128,7 +122,7 @@ func (b *Blob) getLastBlobOrNew() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if fileSize < maxBlobSize {
+		if fileSize < MaxBlobSize {
 			b.currentBlob = result
 			b.currentBlobSize = fileSize
 			return result, nil
@@ -236,7 +230,7 @@ func (b *Blob) endSession() error {
 		return b.currentWriter.Abort()
 	}
 
-	if _, err = writer.Write(repositoryHeader); err != nil {
+	if _, err = writer.Write(RepositoryHeader); err != nil {
 		klog.V(0).Error(err, "cannot write trailer header")
 		return b.currentWriter.Abort()
 	}

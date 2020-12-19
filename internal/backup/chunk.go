@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	proto "github.com/golang/protobuf/proto"
+	. "github.com/kazimsarikaya/backup/internal"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
 )
@@ -33,7 +34,7 @@ func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, err
 	ch := &ChunkHelper{}
 	ch.fs = fs
 	ch.nextChunkId = nextChunkId
-	ch.blobsDir = chunksDir
+	ch.blobsDir = ChunksDir
 	_, err := ch.getLastBlobOrNew()
 	if err != nil {
 		return nil, err
@@ -68,7 +69,7 @@ func (ch *ChunkHelper) append(chunk_data, sum []byte) (uint64, error) {
 	data := encoder.EncodeAll(chunk_data, nil)
 	datalen := int64(len(data))
 
-	if ch.currentBlobSize+datalen > maxBlobSize {
+	if ch.currentBlobSize+datalen > MaxBlobSize {
 		err = ch.endSession()
 		if err != nil {
 			return 0, err
@@ -109,7 +110,7 @@ func (ch *ChunkHelper) startChunkSession() error {
 }
 
 func (ch *ChunkHelper) getChunkData(blobFile string, start, length uint64) ([]byte, error) {
-	r, err := ch.fs.Open(chunksDir + "/" + blobFile)
+	r, err := ch.fs.Open(ChunksDir + "/" + blobFile)
 	if err != nil {
 		klog.V(6).Error(err, "cannot open blob file "+blobFile)
 		return nil, err

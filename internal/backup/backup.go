@@ -20,6 +20,7 @@ import (
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	ptimestamp "github.com/golang/protobuf/ptypes/timestamp"
+	. "github.com/kazimsarikaya/backup/internal"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
 	"os"
@@ -35,7 +36,7 @@ type BackupHelper struct {
 func NewBackupHelper(fs backupfs.BackupFS) (*BackupHelper, error) {
 	bh := &BackupHelper{}
 	bh.fs = fs
-	bh.blobsDir = backupsDir
+	bh.blobsDir = BackupsDir
 	bh.getLastBlobOrNew()
 	return bh, nil
 }

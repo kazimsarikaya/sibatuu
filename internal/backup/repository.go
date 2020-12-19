@@ -24,16 +24,13 @@ import (
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	prettytable "github.com/jedib0t/go-pretty/v6/table"
+	. "github.com/kazimsarikaya/backup/internal"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	"io"
 	klog "k8s.io/klog/v2"
 	"os"
 	"path/filepath"
 	"syscall"
-)
-
-const (
-	repoInfo string = "repoinfo"
 )
 
 type RepositoryHelper struct {
@@ -55,7 +52,7 @@ func NewRepositoy(fs backupfs.BackupFS) (*RepositoryHelper, error) {
 }
 
 func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, error) {
-	reader, err := fs.Open(repoInfo)
+	reader, err := fs.Open(RepoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot open repoinfo")
 		return nil, err
@@ -145,12 +142,12 @@ func (rh *RepositoryHelper) Initialize() error {
 		return err
 	}
 
-	if err := rh.fs.Mkdirs(chunksDir); err != nil {
+	if err := rh.fs.Mkdirs(ChunksDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
 
-	if err := rh.fs.Mkdirs(backupsDir); err != nil {
+	if err := rh.fs.Mkdirs(BackupsDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
 		return err
 	}
@@ -186,7 +183,7 @@ func (rh *RepositoryHelper) writeData() error {
 	}
 	klog.V(6).Infof("protobuf %v", out)
 
-	writer, err := rh.fs.Create(repoInfo)
+	writer, err := rh.fs.Create(RepoInfo)
 	if err != nil {
 		klog.V(0).Error(err, "cannot create repoinfo")
 		return err
@@ -199,7 +196,7 @@ func (rh *RepositoryHelper) writeData() error {
 		return writer.Abort()
 	}
 
-	if _, err = writer.Write(repositoryHeader); err != nil {
+	if _, err = writer.Write(RepositoryHeader); err != nil {
 		klog.V(0).Error(err, "cannot write trailer header")
 		return writer.Abort()
 	}
@@ -253,7 +250,7 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 					return err
 				}
 				for {
-					data := make([]byte, chunkSize)
+					data := make([]byte, ChunkSize)
 					rcnt, err := inf.Read(data)
 					if err != nil {
 						if err == io.EOF {
@@ -347,7 +344,7 @@ func (rh *RepositoryHelper) ListBackups() error {
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
 	dedup_ratio := 1 - float64(rh.cache.getChunkCount())/total_chunk_count
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
-	compress_ratio := 1 - float64(rh.cache.getTotalChunkSize())/(float64(rh.cache.getChunkCount())*float64(chunkSize))
+	compress_ratio := 1 - float64(rh.cache.getTotalChunkSize())/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
 	t.Render()
 	return nil

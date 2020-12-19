@@ -14,19 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package backup
+package internal
 
-import (
-	"encoding/binary"
-	. "github.com/kazimsarikaya/backup/internal"
+const (
+	RepoInfo     string = "repoinfo"
+	ChunksDir    string = "chunks"
+	BackupsDir   string = "backups"
+	MaxBlobSize  int64  = 128 << 20
+	ChunkSize    int64  = 4 << 10
+	IOBufferSize int    = 128 << 10
 )
 
-func checkHeaderAndGetLength(data []byte) (bool, int64) {
-	for i := range RepositoryHeader {
-		if RepositoryHeader[i] != data[i] {
-			return false, 0
-		}
-	}
-	datalen := binary.LittleEndian.Uint64(data[8:])
-	return true, int64(datalen)
-}
+var (
+	RepositoryHeader = []byte{0xFE, 0xED, 0xFA, 0xCE, 0xCA, 0xFE, 0xBE, 0xEF}
+)

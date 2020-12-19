@@ -17,6 +17,7 @@ limitations under the License.
 package backupfs
 
 import (
+	. "github.com/kazimsarikaya/backup/internal"
 	"io"
 	klog "k8s.io/klog/v2"
 	"os"
@@ -24,7 +25,6 @@ import (
 )
 
 type LocalBackupFS struct {
-	BackupFS
 	basePath string
 }
 
@@ -148,7 +148,7 @@ func (wca *LocalWriteCloseAborter) Close() error {
 	var twc int64 = 0
 	var wc, rc int = 0, 0
 	for {
-		data := make([]byte, 128<<10)
+		data := make([]byte, IOBufferSize)
 		rc, err = r.Read(data)
 		if err != nil {
 			if err == io.EOF {
