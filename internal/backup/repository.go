@@ -113,7 +113,7 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 	rh.Checksum = sum[:]
 
 	rh.fs = fs
-	rh.ch, err = NewChunkHelper(fs, rh.GetLastChunkId()+1)
+	rh.ch, err = NewChunkHelper(fs)
 	if err != nil {
 		klog.V(5).Error(err, "cannot create chunk helper")
 		return nil, err
@@ -213,19 +213,23 @@ func (rh *RepositoryHelper) writeData() error {
 
 func (rh *RepositoryHelper) Backup(path, tag string) error {
 	rh.cache.getLastBackup(tag)
-	err := rh.ch.startChunkSession()
+	last_chunk_id := rh.cache.getLastChunkId()
+	err := rh.ch.startChunkSession(last_chunk_id + 1)
 	if err != nil {
 		klog.V(5).Error(err, "cannot start chunk session")
 		return err
 	}
-	var bid = rh.GetLastBackupId() + 1
+	last_bid, err := rh.bh.GetLastBackupId()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get last backup id")
+		return err
+	}
+	bid := last_bid + 1
 	ts, err := rh.bh.startBackupSession(bid, tag)
 	if err != nil {
 		klog.V(5).Error(err, "cannot start backup session")
 		return err
 	}
-
-	var last_chunk_id uint64
 
 	err = filepath.Walk(path, func(file string, info os.FileInfo, err error) error {
 		file_sys := info.Sys()
@@ -315,8 +319,6 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 		klog.V(5).Error(err, "cannot end backup helper, please rebackup")
 		return err
 	}
-	rh.LastBackupId = bid
-	rh.LastChunkId = last_chunk_id
 	rh.LastUpdated = ts
 
 	err = rh.writeData()
@@ -368,6 +370,7 @@ func (rh *RepositoryHelper) listBackups(backups []*Backup) error {
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
 	compress_ratio := 1 - float64(rh.cache.getTotalSizeOfChunks(uniq_chunk_ids))/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
+	t.AppendFooter(prettytable.Row{"", "", "", "", "Last Chunk Id", rh.cache.getLastChunkId()})
 	t.Render()
 	return nil
 }

@@ -57,6 +57,21 @@ func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) (*ptimes
 	return ts, err
 }
 
+func (bh *BackupHelper) GetLastBackupId() (uint64, error) {
+	allBackups, err := bh.getAllBackups()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get all backups")
+		return 0, err
+	}
+	var bid uint64 = 0
+	for _, b := range allBackups {
+		if bid < b.GetBackupId() {
+			bid = b.GetBackupId()
+		}
+	}
+	return bid, nil
+}
+
 func (bh *BackupHelper) createFile(fileName string, mt time.Time, len int64, mode os.FileMode, uid, gid uint32) {
 	ts, _ := ptypes.TimestampProto(mt)
 	bh.currentFile = &Backup_FileInfo{

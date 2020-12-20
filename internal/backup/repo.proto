@@ -61,9 +61,7 @@ message Backup {
 message Repository {
   google.protobuf.Timestamp create_time = 1;
   google.protobuf.Timestamp last_updated = 2;
-  fixed64 last_chunk_id = 3;
-  fixed64 last_backup_id = 4;
-  bytes checksum = 5;
+  bytes checksum = 3;
 }
 
 message LocalCache {

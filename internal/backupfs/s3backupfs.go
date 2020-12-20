@@ -30,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -58,6 +59,9 @@ func NewS3BackupFS(url *url.URL) (BackupFS, error) {
 		basePath = p[idx+1:]
 	} else {
 		bucket = p[1:]
+	}
+	if bucket[len(bucket)-1] == '/' {
+		bucket = bucket[:len(bucket)-1]
 	}
 
 	secure := false
@@ -209,6 +213,8 @@ func (fs *S3BackupFS) List(path string) ([]string, error) {
 		key = key[1:]
 	}
 
+	klog.V(5).Infof("listing folder %v", key)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -225,12 +231,16 @@ func (fs *S3BackupFS) List(path string) ([]string, error) {
 		}
 		res = append(res, obj.Key[len(key):])
 	}
-
+	sort.Strings(res)
 	return res, nil
 }
 
 func (fs *S3BackupFS) Length(path string) (int64, error) {
 	key := filepath.Clean(fs.basePath + "/" + path)
+	if key[0] == '/' {
+		key = key[1:]
+	}
+	klog.V(5).Infof("get length of file %v", key)
 	objInfo, err := fs.client.StatObject(context.Background(), fs.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
 		return -1, err

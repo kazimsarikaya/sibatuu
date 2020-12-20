@@ -31,10 +31,9 @@ type ChunkHelper struct {
 	chunkReaderCache map[string]backupfs.ReadSeekCloser
 }
 
-func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, error) {
+func NewChunkHelper(fs backupfs.BackupFS) (*ChunkHelper, error) {
 	ch := &ChunkHelper{}
 	ch.fs = fs
-	ch.nextChunkId = nextChunkId
 	ch.blobsDir = ChunksDir
 	ch.chunkReaderCache = make(map[string]backupfs.ReadSeekCloser)
 	_, err := ch.getLastBlobOrNew()
@@ -104,7 +103,8 @@ func (ch *ChunkHelper) append(chunk_data, sum []byte) (uint64, error) {
 	return ci.ChunkId, err
 }
 
-func (ch *ChunkHelper) startChunkSession() error {
+func (ch *ChunkHelper) startChunkSession(next_chunk_id uint64) error {
+	ch.nextChunkId = next_chunk_id
 	return ch.startSession(func() BlobInterface {
 		var cis []*ChunkInfo
 		return &ChunkInfos{ChunkInfos: cis}

@@ -206,3 +206,15 @@ func (c *Cache) getBlobFileOfChunkId(chunk_id uint64) (*string, uint64, uint64) 
 	}
 	return nil, 0, 0
 }
+
+func (c *Cache) getLastChunkId() uint64 {
+	var cid uint64 = 0
+	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
+		for _, ci := range cifm.ChunkInfos {
+			if cid < ci.ChunkId {
+				cid = ci.ChunkId
+			}
+		}
+	}
+	return cid
+}
