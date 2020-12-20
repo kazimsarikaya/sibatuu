@@ -61,16 +61,12 @@ If latest parameter given, filters backup with tag as prefix and restore operati
 			if err != nil {
 				return err
 			}
-			latest, err := cmd.Flags().GetBool("latest")
-			if err != nil {
-				return err
-			}
 			override, err := cmd.Flags().GetBool("override")
 			if err != nil {
 				return err
 			}
 
-			klog.V(5).Infof("restore command called with repository %v cache %v backup id %v tag %v latest? %v", repository, cache, bid, tag, latest)
+			klog.V(5).Infof("restore command called with repository %v cache %v backup id %v tag %v", repository, cache, bid, tag)
 			fs, err := backupfs.GetBackupFS(repository)
 			if err != nil {
 				return err
@@ -80,7 +76,7 @@ If latest parameter given, filters backup with tag as prefix and restore operati
 				return err
 			}
 
-			if latest {
+			if bid == 0 && tag != "" {
 				if fid == -1 && fn == "" {
 					err = r.RestoreLatestItemsFilteredWithBtag(destination, tag, override)
 				} else if fid != -1 && fn == "" {
@@ -90,30 +86,18 @@ If latest parameter given, filters backup with tag as prefix and restore operati
 				} else {
 					return errors.New("cannot have both file id and name")
 				}
-			} else {
-				if bid != 0 && tag == "" {
-					if fid == -1 && fn == "" {
-						err = r.RestoreItemsWithBid(destination, bid, override)
-					} else if fid != -1 && fn == "" {
-						err = r.RestoreItemWithFidWithBid(destination, fid, bid, override)
-					} else if fid == -1 && fn != "" {
-						err = r.RestoreItemWithFnameWithBid(destination, fn, bid, override)
-					} else {
-						return errors.New("cannot have both file id and name")
-					}
-				} else if bid == 0 && tag != "" {
-					if fid == -1 && fn == "" {
-						err = r.RestoreItemsWithBtag(destination, tag, override)
-					} else if fid != -1 && fn == "" {
-						err = r.RestoreItemWithFidWithBtag(destination, fid, tag, override)
-					} else if fid == -1 && fn != "" {
-						err = r.RestoreItemWithFnameWithBtag(destination, fn, tag, override)
-					} else {
-						return errors.New("cannot have both file id and name")
-					}
+			} else if bid != 0 && tag == "" {
+				if fid == -1 && fn == "" {
+					err = r.RestoreItemsWithBid(destination, bid, override)
+				} else if fid != -1 && fn == "" {
+					err = r.RestoreItemWithFidWithBid(destination, fid, bid, override)
+				} else if fid == -1 && fn != "" {
+					err = r.RestoreItemWithFnameWithBid(destination, fn, bid, override)
 				} else {
-					return errors.New("one of backup id or tag required")
+					return errors.New("cannot have both file id and name")
 				}
+			} else {
+				return errors.New("one of backup id or latest and tag required")
 			}
 			return err
 		},
@@ -124,7 +108,6 @@ func GetRestoreCmd() *cobra.Command {
 	restoreCmd.Flags().StringP("destination", "d", "", "Backup restore destination directory")
 	restoreCmd.Flags().Uint64P("backup-id", "i", 0, "Backup id for restoring given backup")
 	restoreCmd.Flags().StringP("tag", "t", "", "Backup tag for listing given backup")
-	restoreCmd.Flags().BoolP("latest", "l", false, "List latest backup. if tag given filter by tag prefix")
 	restoreCmd.Flags().IntP("file-id", "f", -1, "File id for restore single file")
 	restoreCmd.Flags().StringP("file-name", "n", "", "File name for restore single file")
 	restoreCmd.Flags().BoolP("override", "o", false, "Override if file exists at destination")

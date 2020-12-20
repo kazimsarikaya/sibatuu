@@ -72,6 +72,5 @@ message LocalCache {
     repeated ChunkInfo chunk_infos = 2;
   }
   repeated ChunkInfoFileMap chunk_info_file_maps = 1;
-  optional Backup last_backup = 2;
-  bytes checksum = 3;
+  bytes checksum = 2;
 }

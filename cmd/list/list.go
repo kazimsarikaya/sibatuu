@@ -71,7 +71,7 @@ Also any full tag or backup id given for listing backup contents.`,
 				} else if bid != 0 && tag == "" {
 					r.ListBackupWithId(bid)
 				} else if bid == 0 && tag != "" {
-					r.ListBackupWithTag(tag)
+					r.ListBackupsWithTag(tag)
 				} else {
 					return errors.New("cannot have both id and tag")
 				}

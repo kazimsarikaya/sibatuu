@@ -321,6 +321,7 @@ type S3WriteCloseAborter struct {
 }
 
 func NewS3WriteCloseAborter(fs *S3BackupFS, path string, append bool) (WriteCloseAborter, error) {
+	path = filepath.Clean(path)
 	rappend := append
 	if append {
 		len, err := fs.Length(path)
@@ -561,6 +562,7 @@ func (w *S3WriteCloseAborter) createBackend() error {
 	w.backendFile = file.Name()
 	w.backendWriter = file
 	w.backendClosed = false
+	w.currentPartSize = 0
 	return nil
 }
 

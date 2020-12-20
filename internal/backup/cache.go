@@ -41,6 +41,7 @@ type Cache struct {
 	dirtyChunkIds []dirtyChunkId
 	ch            *ChunkHelper
 	bh            *BackupHelper
+	lastBackup    *Backup
 }
 
 func NewCache(fs backupfs.BackupFS, cacheDir string, ch *ChunkHelper, bh *BackupHelper) (*Cache, error) {
@@ -92,11 +93,6 @@ func (c *Cache) fillCache() error {
 		klog.V(5).Error(err, "cannot get all chunks")
 		return err
 	}
-	backup, err := c.bh.getLastBackup()
-	if err != nil {
-		klog.V(5).Error(err, "cannot get last backup")
-		return err
-	}
 
 	var items []*LocalCache_ChunkInfoFileMap
 	for key, value := range cinfos {
@@ -106,7 +102,7 @@ func (c *Cache) fillCache() error {
 		})
 	}
 
-	c.LocalCache = &LocalCache{ChunkInfoFileMaps: items, LastBackup: backup}
+	c.LocalCache = &LocalCache{ChunkInfoFileMaps: items}
 
 	preout, err := proto.Marshal(c.LocalCache)
 	if err != nil {
@@ -142,7 +138,27 @@ func (c *Cache) getChunkCount() int {
 	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
 		total_count += len(cifm.ChunkInfos)
 	}
+	klog.V(6).Infof("total chunk count %v", total_count)
 	return total_count
+}
+
+func (c *Cache) getSizeOfChunk(chunk_id uint64) uint64 {
+	for _, cifm := range c.LocalCache.GetChunkInfoFileMaps() {
+		for _, ci := range cifm.ChunkInfos {
+			if ci.ChunkId == chunk_id {
+				return ci.Length
+			}
+		}
+	}
+	return 0
+}
+
+func (c *Cache) getTotalSizeOfChunks(chunk_ids map[uint64]struct{}) uint64 {
+	var total_size uint64 = 0
+	for chunk_id := range chunk_ids {
+		total_size += c.getSizeOfChunk(chunk_id)
+	}
+	return total_size
 }
 
 func (c *Cache) getTotalChunkSize() uint64 {
@@ -155,12 +171,16 @@ func (c *Cache) getTotalChunkSize() uint64 {
 	return total_size
 }
 
+func (c *Cache) getLastBackup(tag string) {
+	c.lastBackup = c.bh.getLatestBackupWithFilteredByTag(tag)
+}
+
 func (c *Cache) isFileChangedOrGetChunkIds(trimmedPath string, info os.FileInfo) (bool, []uint64) {
-	if c.LocalCache.LastBackup == nil {
+	if c.lastBackup == nil {
 		klog.V(6).Infof("any backup found, not returning old chunk ids")
 		return true, nil
 	}
-	for _, fi := range c.LocalCache.LastBackup.FileInfos {
+	for _, fi := range c.lastBackup.FileInfos {
 		if fi.FileName == trimmedPath {
 			klog.V(6).Infof("file %v found at cache, checking it", trimmedPath)
 			ts, _ := ptypes.TimestampProto(info.ModTime())

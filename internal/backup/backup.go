@@ -17,6 +17,7 @@ limitations under the License.
 package backup
 
 import (
+	"errors"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	ptimestamp "github.com/golang/protobuf/ptypes/timestamp"
@@ -46,7 +47,9 @@ func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) (*ptimes
 	t := time.Now()
 	ts, _ := ptypes.TimestampProto(t)
 	if tag == "" {
-		tag = t.Format(time.RFC3339)
+		return nil, errors.New("backup tag cannot be empty")
+	} else {
+		tag += "-" + t.Format(time.RFC3339)
 	}
 	err := bh.startSession(func() BlobInterface {
 		return &Backup{BackupTime: ts, BackupId: backupId, Tag: tag}
@@ -133,18 +136,19 @@ func (bh *BackupHelper) getBackupById(bid uint64) *Backup {
 	return nil
 }
 
-func (bh *BackupHelper) getBackupByTag(tag string) *Backup {
+func (bh *BackupHelper) getBackupsByTag(tag string) []*Backup {
 	allBackups, err := bh.getAllBackups()
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all backups")
 		return nil
 	}
+	var filteredBackups []*Backup
 	for _, b := range allBackups {
-		if b.Tag == tag {
-			return b
+		if strings.HasPrefix(b.Tag, tag) {
+			filteredBackups = append(filteredBackups, b)
 		}
 	}
-	return nil
+	return filteredBackups
 }
 
 func (bh *BackupHelper) getLatestBackupWithFilteredByTag(tag string) *Backup {

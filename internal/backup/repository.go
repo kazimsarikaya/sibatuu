@@ -212,6 +212,7 @@ func (rh *RepositoryHelper) writeData() error {
 }
 
 func (rh *RepositoryHelper) Backup(path, tag string) error {
+	rh.cache.getLastBackup(tag)
 	err := rh.ch.startChunkSession()
 	if err != nil {
 		klog.V(5).Error(err, "cannot start chunk session")
@@ -281,6 +282,7 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 					}
 					rh.bh.addChunkIdToFile(chunk_id)
 				}
+				inf.Close()
 				klog.V(5).Infof("backup of file %v ended", info.Name())
 			}
 			rh.bh.closeFile()
@@ -332,24 +334,39 @@ func (rh *RepositoryHelper) ListBackups() error {
 		klog.V(5).Error(err, "cannot get all backups")
 		return err
 	}
+	return rh.listBackups(backups)
+}
+
+func (rh *RepositoryHelper) ListBackupsWithTag(tag string) error {
+	backups := rh.bh.getBackupsByTag(tag)
+	return rh.listBackups(backups)
+}
+
+func (rh *RepositoryHelper) listBackups(backups []*Backup) error {
 	t := prettytable.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(prettytable.Row{"#", "Backup Time", "Tag", "Item Count", "chunk count", "Total Size"})
 	var total_chunk_count float64 = 0
+	uniq_chunk_ids := make(map[uint64]struct{})
+	var exists = struct{}{}
 	for _, backup := range backups {
 		var total_len uint64 = 0
 		var chunk_count int = 0
 		for _, fi := range backup.FileInfos {
 			total_len += fi.FileLength
 			chunk_count += len(fi.ChunkIds)
+			for _, id := range fi.ChunkIds {
+				uniq_chunk_ids[id] = exists
+			}
 		}
 		total_chunk_count += float64(chunk_count)
 		t.AppendRow(prettytable.Row{backup.BackupId, ptypes.TimestampString(backup.BackupTime), backup.Tag, len(backup.FileInfos), chunk_count, total_len})
 	}
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
-	dedup_ratio := 1 - float64(rh.cache.getChunkCount())/total_chunk_count
+	klog.V(6).Infof("total chunk count at backups %v uniq chunk count at backups %v", total_chunk_count, len(uniq_chunk_ids))
+	dedup_ratio := 1 - float64(len(uniq_chunk_ids))/total_chunk_count
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
-	compress_ratio := 1 - float64(rh.cache.getTotalChunkSize())/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
+	compress_ratio := 1 - float64(rh.cache.getTotalSizeOfChunks(uniq_chunk_ids))/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
 	t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
 	t.Render()
 	return nil
@@ -357,11 +374,6 @@ func (rh *RepositoryHelper) ListBackups() error {
 
 func (rh *RepositoryHelper) ListBackupWithId(bid uint64) {
 	backup := rh.bh.getBackupById(bid)
-	rh.listBackup(backup)
-}
-
-func (rh *RepositoryHelper) ListBackupWithTag(tag string) {
-	backup := rh.bh.getBackupByTag(tag)
 	rh.listBackup(backup)
 }
 
@@ -423,32 +435,6 @@ func (rh *RepositoryHelper) RestoreItemWithFidWithBid(destination string, fid in
 
 func (rh *RepositoryHelper) RestoreItemWithFnameWithBid(destination, fname string, bid uint64, override bool) error {
 	backup := rh.bh.getBackupById(bid)
-	if backup == nil {
-		return errors.New("backup not found")
-	}
-	fi := rh.getFileInfoWithFname(backup, fname)
-	return rh.restoreItem(destination, fi, backup, override)
-}
-
-func (rh *RepositoryHelper) RestoreItemsWithBtag(destination, tag string, override bool) error {
-	backup := rh.bh.getBackupByTag(tag)
-	if backup == nil {
-		return errors.New("backup not found")
-	}
-	return rh.restoreItems(destination, backup, override)
-}
-
-func (rh *RepositoryHelper) RestoreItemWithFidWithBtag(destination string, fid int, tag string, override bool) error {
-	backup := rh.bh.getBackupByTag(tag)
-	if backup == nil {
-		return errors.New("backup not found")
-	}
-	fi := rh.getFileInfoWithFid(backup, fid)
-	return rh.restoreItem(destination, fi, backup, override)
-}
-
-func (rh *RepositoryHelper) RestoreItemWithFnameWithBtag(destination, fname, tag string, override bool) error {
-	backup := rh.bh.getBackupByTag(tag)
 	if backup == nil {
 		return errors.New("backup not found")
 	}
