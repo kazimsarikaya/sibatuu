@@ -17,7 +17,10 @@ limitations under the License.
 package backupfs
 
 import (
+	"errors"
 	"io"
+	klog "k8s.io/klog/v2"
+	"net/url"
 )
 
 type BackupFS interface {
@@ -43,4 +46,29 @@ type WriteCloseAborter interface {
 	io.Writer
 	io.Closer
 	Aborter
+}
+
+func GetBackupFS(repository string) (BackupFS, error) {
+	repoUrl, err := url.Parse(repository)
+
+	var fs BackupFS
+
+	if repoUrl.Scheme == "" || repoUrl.Scheme == "file" {
+		fs, err = NewLocalBackupFS(repoUrl.Path)
+		if err != nil {
+			klog.V(0).Error(err, "cannot create file system for repo "+repository)
+			return nil, err
+		}
+	} else if repoUrl.Scheme == "s3" {
+		fs, err = NewS3BackupFS(repoUrl)
+		if err != nil {
+			klog.V(0).Error(err, "cannot create file system for repo "+repository)
+			return nil, err
+		}
+	} else {
+		err = errors.New("unknown scheme")
+		klog.V(0).Error(err, "cannot create file system for repo "+repository)
+		return nil, err
+	}
+	return fs, nil
 }

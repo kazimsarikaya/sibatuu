@@ -360,6 +360,11 @@ func (rh *RepositoryHelper) ListBackupWithTag(tag string) {
 	rh.listBackup(backup)
 }
 
+func (rh *RepositoryHelper) ListLatestBackupWithFilteredByTag(tag string) {
+	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
+	rh.listBackup(backup)
+}
+
 func (rh *RepositoryHelper) listBackup(backup *Backup) {
 	if backup == nil {
 		klog.V(0).Error(errors.New("backup not found"), "cannot list backup content")
@@ -424,6 +429,23 @@ func (rh *RepositoryHelper) RestoreItemWithFidWithBtag(destination string, fid i
 
 func (rh *RepositoryHelper) RestoreItemWithFnameWithBtag(destination, fname, tag string, override bool) error {
 	backup := rh.bh.getBackupByTag(tag)
+	fi := rh.getFileInfoWithFname(backup, fname)
+	return rh.restoreItem(destination, fi, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreLatestItemsFilteredWithBtag(destination, tag string, override bool) error {
+	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
+	return rh.restoreItems(destination, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreLatestItemWithFidFilteredWithBtag(destination string, fid int, tag string, override bool) error {
+	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
+	fi := rh.getFileInfoWithFid(backup, fid)
+	return rh.restoreItem(destination, fi, backup, override)
+}
+
+func (rh *RepositoryHelper) RestoreLatestItemWithFnameFilteredWithBtag(destination, fname, tag string, override bool) error {
+	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
 	fi := rh.getFileInfoWithFname(backup, fname)
 	return rh.restoreItem(destination, fi, backup, override)
 }

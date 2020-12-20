@@ -9,6 +9,8 @@ require (
 	github.com/minio/minio-go/v7 v7.0.6
 	github.com/onsi/ginkgo v1.14.2
 	github.com/onsi/gomega v1.10.4
+	github.com/spf13/cobra v1.1.1
+	github.com/spf13/pflag v1.0.5
 	google.golang.org/protobuf v1.23.0
 	k8s.io/klog/v2 v2.4.0
 )

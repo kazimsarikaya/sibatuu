@@ -25,6 +25,7 @@ import (
 	klog "k8s.io/klog/v2"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -110,6 +111,7 @@ func (bh *BackupHelper) getLastBackup() (*Backup, error) {
 	allBackups, err := bh.getAllBackups()
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all backups")
+		return nil, err
 	}
 	if len(allBackups) > 0 {
 		return allBackups[len(allBackups)-1], nil
@@ -121,6 +123,7 @@ func (bh *BackupHelper) getBackupById(bid uint64) *Backup {
 	allBackups, err := bh.getAllBackups()
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all backups")
+		return nil
 	}
 	for _, b := range allBackups {
 		if b.BackupId == bid {
@@ -134,11 +137,30 @@ func (bh *BackupHelper) getBackupByTag(tag string) *Backup {
 	allBackups, err := bh.getAllBackups()
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all backups")
+		return nil
 	}
 	for _, b := range allBackups {
 		if b.Tag == tag {
 			return b
 		}
+	}
+	return nil
+}
+
+func (bh *BackupHelper) getLatestBackupWithFilteredByTag(tag string) *Backup {
+	allBackups, err := bh.getAllBackups()
+	if err != nil {
+		klog.V(5).Error(err, "cannot get all backups")
+		return nil
+	}
+	var filteredBackups []*Backup
+	for _, b := range allBackups {
+		if strings.HasPrefix(b.Tag, tag) {
+			filteredBackups = append(filteredBackups, b)
+		}
+	}
+	if len(filteredBackups) > 0 {
+		return filteredBackups[len(filteredBackups)-1]
 	}
 	return nil
 }
