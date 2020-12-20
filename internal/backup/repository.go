@@ -231,6 +231,11 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 		uid := file_sys.(*syscall.Stat_t).Uid
 		gid := file_sys.(*syscall.Stat_t).Gid
 		trimmedPath := file[len(path):]
+		if len(trimmedPath) > 0 {
+			if trimmedPath[0] == '/' {
+				trimmedPath = trimmedPath[1:]
+			}
+		}
 		if trimmedPath == "" {
 			trimmedPath = "."
 		}
@@ -401,56 +406,86 @@ func (rh *RepositoryHelper) listBackup(backup *Backup) {
 
 func (rh *RepositoryHelper) RestoreItemsWithBid(destination string, bid uint64, override bool) error {
 	backup := rh.bh.getBackupById(bid)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	return rh.restoreItems(destination, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreItemWithFidWithBid(destination string, fid int, bid uint64, override bool) error {
 	backup := rh.bh.getBackupById(bid)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	fi := rh.getFileInfoWithFid(backup, fid)
 	return rh.restoreItem(destination, fi, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreItemWithFnameWithBid(destination, fname string, bid uint64, override bool) error {
 	backup := rh.bh.getBackupById(bid)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	fi := rh.getFileInfoWithFname(backup, fname)
 	return rh.restoreItem(destination, fi, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreItemsWithBtag(destination, tag string, override bool) error {
 	backup := rh.bh.getBackupByTag(tag)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	return rh.restoreItems(destination, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreItemWithFidWithBtag(destination string, fid int, tag string, override bool) error {
 	backup := rh.bh.getBackupByTag(tag)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	fi := rh.getFileInfoWithFid(backup, fid)
 	return rh.restoreItem(destination, fi, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreItemWithFnameWithBtag(destination, fname, tag string, override bool) error {
 	backup := rh.bh.getBackupByTag(tag)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	fi := rh.getFileInfoWithFname(backup, fname)
 	return rh.restoreItem(destination, fi, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreLatestItemsFilteredWithBtag(destination, tag string, override bool) error {
 	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	return rh.restoreItems(destination, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreLatestItemWithFidFilteredWithBtag(destination string, fid int, tag string, override bool) error {
 	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	fi := rh.getFileInfoWithFid(backup, fid)
 	return rh.restoreItem(destination, fi, backup, override)
 }
 
 func (rh *RepositoryHelper) RestoreLatestItemWithFnameFilteredWithBtag(destination, fname, tag string, override bool) error {
 	backup := rh.bh.getLatestBackupWithFilteredByTag(tag)
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	fi := rh.getFileInfoWithFname(backup, fname)
 	return rh.restoreItem(destination, fi, backup, override)
 }
 
 func (rh *RepositoryHelper) getFileInfoWithFid(backup *Backup, fid int) *Backup_FileInfo {
+	if backup == nil {
+		return nil
+	}
 	for id, fi := range backup.FileInfos {
 		if id == fid {
 			return fi
@@ -460,6 +495,9 @@ func (rh *RepositoryHelper) getFileInfoWithFid(backup *Backup, fid int) *Backup_
 }
 
 func (rh *RepositoryHelper) getFileInfoWithFname(backup *Backup, fname string) *Backup_FileInfo {
+	if backup == nil {
+		return nil
+	}
 	for _, fi := range backup.FileInfos {
 		if fi.FileName == fname {
 			return fi
@@ -469,6 +507,9 @@ func (rh *RepositoryHelper) getFileInfoWithFname(backup *Backup, fname string) *
 }
 
 func (rh *RepositoryHelper) restoreItems(destination string, backup *Backup, override bool) error {
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	for _, fi := range backup.FileInfos {
 		if err := rh.restoreItem(destination, fi, backup, override); err != nil {
 			return err
@@ -478,6 +519,9 @@ func (rh *RepositoryHelper) restoreItems(destination string, backup *Backup, ove
 }
 
 func (rh *RepositoryHelper) fixMtimes(destination string, backup *Backup) error {
+	if backup == nil {
+		return errors.New("backup not found")
+	}
 	for _, fi := range backup.FileInfos {
 		t, _ := ptypes.Timestamp(fi.LastModified)
 		path2Fix := destination + "/" + fi.FileName
