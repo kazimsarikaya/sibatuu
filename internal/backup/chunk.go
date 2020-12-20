@@ -27,7 +27,8 @@ import (
 
 type ChunkHelper struct {
 	Blob
-	nextChunkId uint64
+	nextChunkId      uint64
+	chunkReaderCache map[string]backupfs.ReadSeekCloser
 }
 
 func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, error) {
@@ -35,6 +36,7 @@ func NewChunkHelper(fs backupfs.BackupFS, nextChunkId uint64) (*ChunkHelper, err
 	ch.fs = fs
 	ch.nextChunkId = nextChunkId
 	ch.blobsDir = ChunksDir
+	ch.chunkReaderCache = make(map[string]backupfs.ReadSeekCloser)
 	_, err := ch.getLastBlobOrNew()
 	if err != nil {
 		return nil, err
@@ -110,11 +112,21 @@ func (ch *ChunkHelper) startChunkSession() error {
 }
 
 func (ch *ChunkHelper) getChunkData(blobFile string, start, length uint64) ([]byte, error) {
-	r, err := ch.fs.Open(ChunksDir + "/" + blobFile)
-	if err != nil {
-		klog.V(6).Error(err, "cannot open blob file "+blobFile)
-		return nil, err
+	var err error
+	var r backupfs.ReadSeekCloser
+	var found bool
+
+	path := ChunksDir + "/" + blobFile
+
+	if r, found = ch.chunkReaderCache[path]; !found {
+		r, err = ch.fs.Open(path)
+		if err != nil {
+			klog.V(6).Error(err, "cannot open blob file "+blobFile)
+			return nil, err
+		}
+		ch.chunkReaderCache[path] = r
 	}
+
 	r.Seek(int64(start), 0)
 	data := make([]byte, length)
 	rc, err := r.Read(data)
@@ -125,7 +137,7 @@ func (ch *ChunkHelper) getChunkData(blobFile string, start, length uint64) ([]by
 	if uint64(rc) != length {
 		return nil, errors.New("cannot read data as requested")
 	}
-	r.Close()
+
 	cdata, err := decoder.DecodeAll(data, nil)
 	if err != nil {
 		klog.V(6).Error(err, fmt.Sprintf("cannot decompress chunk data from %v start %v len %v", blobFile, start, length))

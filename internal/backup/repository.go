@@ -74,7 +74,7 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 	var res bool
 	if res, datalen = checkHeaderAndGetLength(data); !res {
 		klog.V(0).Error(err, "repoinfo meta broken")
-		return nil, err
+		return nil, errors.New("repoinfo meta broken")
 	}
 
 	reader.Seek(0, 0)
@@ -82,7 +82,7 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 	len, err = reader.Read(data)
 	if len != int(datalen) {
 		klog.V(0).Error(err, "cannot read repoinfo")
-		return nil, err
+		return nil, errors.New("cannot read repoinfo")
 	}
 
 	rh := RepositoryHelper{}
@@ -610,6 +610,7 @@ func (rh *RepositoryHelper) restoreFileData(dest string, fi *Backup_FileInfo) er
 		if bf == nil {
 			return errors.New(fmt.Sprintf("cannot find blob file for chunk id %v", cid))
 		}
+		klog.V(5).Infof("try to get chunk id %v for %v", cid, dest)
 		data, err := rh.ch.getChunkData(*bf, start, len)
 		if err != nil {
 			klog.V(5).Error(err, fmt.Sprintf("chunk data not received for file %v for chunk id %v", dest, cid))

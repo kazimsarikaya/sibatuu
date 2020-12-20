@@ -239,10 +239,14 @@ func (fs *S3BackupFS) Length(path string) (int64, error) {
 }
 
 type S3ReadSeekCloser struct {
-	fs       *S3BackupFS
-	path     string
-	position int64
-	size     int64
+	fs             *S3BackupFS
+	path           string
+	position       int64
+	size           int64
+	buffer         [S3ReaderBufferSize]byte
+	bufferPosition int
+	bufferLength   int
+	bufferStart    int64
 }
 
 func NewS3ReadSeekCloser(fs *S3BackupFS, path string) (ReadSeekCloser, error) {
@@ -254,36 +258,61 @@ func NewS3ReadSeekCloser(fs *S3BackupFS, path string) (ReadSeekCloser, error) {
 	return &S3ReadSeekCloser{fs: fs, path: path, position: 0, size: size}, nil
 }
 
-func (r *S3ReadSeekCloser) Read(data []byte) (int, error) {
+func (r *S3ReadSeekCloser) fillBuffer() error {
 	path := r.fs.basePath + "/" + r.path
 	key := filepath.Clean(path)
 	if key[0] == '/' {
 		key = key[1:]
 	}
-	klog.V(5).Infof("try read file %v at position %v with len %v", key, r.position, len(data))
+	klog.V(5).Infof("try to fill buffer from file %v at position %v with len %v", key, r.position, len(r.buffer))
 	object, err := r.fs.client.GetObject(context.Background(), r.fs.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
-		return -1, err
+		return err
 	}
 
-	if r.position >= r.size {
-		return 0, io.EOF
-	}
 	_, err = object.Seek(r.position, 0)
 	if err != nil {
 		klog.V(5).Error(err, "error at seek")
-		return -1, err
+		return err
 	}
-	rc, err := object.Read(data)
+	rc, err := object.Read(r.buffer[:])
 	object.Close()
 	if err != nil {
 		if err.Error() != "EOF" {
 			klog.V(5).Error(err, "error at read")
-			return -1, err
+			return err
 		}
 	}
+	r.bufferStart = r.position
+	r.bufferLength = rc
+	r.bufferPosition = 0
+	klog.V(5).Infof("buffer filled with len %v starting at %v", r.bufferLength, r.bufferStart)
+	return nil
+}
+
+func (r *S3ReadSeekCloser) Read(data []byte) (int, error) {
+	if r.position >= r.size {
+		return 0, io.EOF
+	}
+
+	if len(data) > r.bufferLength-r.bufferPosition {
+		if err := r.fillBuffer(); err != nil {
+			return 0, err
+		}
+	}
+
+	var maxRead int = len(data)
+	if maxRead > r.bufferLength-r.bufferPosition {
+		maxRead = r.bufferLength - r.bufferPosition
+	}
+
+	klog.V(5).Infof("try to read from file %v from start %v with len %v requested len %v", r.path, r.position, maxRead, len(data))
+
+	rc := copy(data, r.buffer[r.bufferPosition:r.bufferPosition+maxRead])
+	r.bufferPosition += rc
 	r.position += int64(rc)
-	klog.V(5).Infof("read succeed for file %v at position %v with len %v", key, r.position, rc)
+
+	klog.V(5).Infof("read succeed for file %v new position %v with max read %v rc %v", r.path, r.position, maxRead, rc)
 	return rc, nil
 }
 
@@ -301,8 +330,18 @@ func (r *S3ReadSeekCloser) Seek(position int64, whence int) (int64, error) {
 	if newpos < 0 || newpos > r.size {
 		return r.position, errors.New(fmt.Sprintf("position out of file size boundaries: %v", newpos))
 	}
+	oldpos := r.position
 	r.position = newpos
-	return newpos, nil
+	if r.position < r.bufferStart || r.position >= r.bufferStart+int64(r.bufferLength) {
+		if err := r.fillBuffer(); err != nil {
+			r.position = oldpos
+			return r.position, err
+		}
+	} else {
+		r.bufferPosition = int(r.position - r.bufferStart)
+	}
+	klog.V(5).Infof("position changed for file %v at %v", r.path, r.position)
+	return r.position, nil
 }
 
 func (r *S3ReadSeekCloser) Close() error {
