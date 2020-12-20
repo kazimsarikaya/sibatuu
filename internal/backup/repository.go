@@ -541,7 +541,7 @@ func (rh *RepositoryHelper) restoreItem(destination string, fi *Backup_FileInfo,
 		os.Chown(path2C, int(fi.Uid), int(fi.Gid))
 	} else {
 		if !mode.IsDir() {
-			klog.V(5).Infof("destination item exists and not overriden", path2C)
+			klog.V(5).Infof("destination item exists and not overriden %v", path2C)
 		}
 	}
 	return nil
