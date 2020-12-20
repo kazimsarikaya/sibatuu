@@ -23,6 +23,7 @@ import (
 	"github.com/kazimsarikaya/backup/internal/backup"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	klog "k8s.io/klog/v2"
+	"net/url"
 	"os"
 	"path"
 )
@@ -92,9 +93,24 @@ func main() {
 		return
 	}
 
-	fs, err := backupfs.NewLocalBackupFS(repository)
-	if err != nil {
-		klog.V(0).Error(err, "cannot create file system for repo "+repository)
+	repoUrl, err := url.Parse(repository)
+
+	var fs backupfs.BackupFS
+
+	if repoUrl.Scheme == "" || repoUrl.Scheme == "file" {
+		fs, err = backupfs.NewLocalBackupFS(repoUrl.Path)
+		if err != nil {
+			klog.V(0).Error(err, "cannot create file system for repo "+repository)
+			os.Exit(1)
+		}
+	} else if repoUrl.Scheme == "s3" {
+		fs, err = backupfs.NewS3BackupFS(repoUrl)
+		if err != nil {
+			klog.V(0).Error(err, "cannot create file system for repo "+repository)
+			os.Exit(1)
+		}
+	} else {
+		klog.V(0).Error(errors.New("unknown scheme"), "cannot create file system for repo "+repository)
 		os.Exit(1)
 	}
 
