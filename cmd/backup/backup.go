@@ -17,10 +17,14 @@ limitations under the License.
 package backupcmd
 
 import (
+	"errors"
+	"fmt"
 	"github.com/kazimsarikaya/backup/internal/backup"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	"github.com/spf13/cobra"
 	klog "k8s.io/klog/v2"
+	"os"
+	"os/signal"
 )
 
 var (
@@ -56,6 +60,27 @@ If tag not given it's default is backup timestamp.`,
 			if err != nil {
 				return err
 			}
+			abort_handler := make(chan os.Signal, 1)
+			signal.Notify(abort_handler, os.Interrupt)
+			go func() {
+				for sig := range abort_handler {
+					klog.V(0).Infof("Signal %v occured, aborting", sig)
+					ch_err, bh_err := r.AbortBackup()
+					if ch_err == nil {
+						klog.V(0).Error(errors.New("abort error nil"), "aborting chunk helper failed")
+					}
+					if bh_err == nil {
+						klog.V(0).Error(errors.New("abort error nil"), "aborting backup helper failed")
+					}
+					if ch_err != nil && bh_err != nil {
+						if ch_err.Error() == "writer aborted" && ch_err.Error() == "writer aborted" {
+							klog.V(0).Infof("Aborting backup succeeded")
+						} else {
+							klog.V(0).Error(errors.New("another error occured during abort"), fmt.Sprintf("internal errors ch: %v bh: %v", ch_err, bh_err))
+						}
+					}
+				}
+			}()
 			return r.Backup(source, tag)
 		},
 	}

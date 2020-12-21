@@ -211,6 +211,10 @@ func (rh *RepositoryHelper) writeData() error {
 	return nil
 }
 
+func (rh *RepositoryHelper) AbortBackup() (error, error) {
+	return rh.ch.abortSession(), rh.bh.abortSession()
+}
+
 func (rh *RepositoryHelper) Backup(path, tag string) error {
 	rh.cache.getLastBackup(tag)
 	last_chunk_id := rh.cache.getLastChunkId()

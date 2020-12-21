@@ -17,6 +17,7 @@ limitations under the License.
 package backupfs
 
 import (
+	"errors"
 	. "github.com/kazimsarikaya/backup/internal"
 	"io"
 	klog "k8s.io/klog/v2"
@@ -100,10 +101,13 @@ func (wca *LocalWriteCloseAborter) Write(data []byte) (int, error) {
 func (wca *LocalWriteCloseAborter) Abort() error {
 	err := wca.tempWriterCloser.Close()
 	if err != nil {
-		return err
+		klog.V(5).Error(err, "cannot close writer")
 	}
 	err = os.Remove(wca.path + "-tmp")
-	return err
+	if err != nil {
+		klog.V(5).Error(err, "cannot remove temp files")
+	}
+	return errors.New("writer aborted")
 }
 
 func (wca *LocalWriteCloseAborter) Close() error {
