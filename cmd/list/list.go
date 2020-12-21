@@ -30,7 +30,8 @@ var (
 		Short: "List backups",
 		Long: `List backups. If no parameters given list all backup information.
 If latest parameter given, filters backups with tag as prefix and display latest backup content.
-Also any full tag or backup id given for listing backup contents.`,
+If tag given lists backups with prefixed with that tag.
+If backup id given, list contents of that backup.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repository, err := cmd.Flags().GetString("repository")
 			if err != nil {
@@ -52,8 +53,12 @@ Also any full tag or backup id given for listing backup contents.`,
 			if err != nil {
 				return err
 			}
+			detail, err := cmd.Flags().GetBool("detail")
+			if err != nil {
+				return err
+			}
 
-			klog.V(5).Infof("list command called with repository %v cache %v backup id %v tag %v latest? %v", repository, cache, bid, tag, latest)
+			klog.V(5).Infof("list command called with repository %v cache %v backup id %v tag %v latest? %v detail? %v", repository, cache, bid, tag, latest, detail)
 			fs, err := backupfs.GetBackupFS(repository)
 			if err != nil {
 				return err
@@ -67,11 +72,11 @@ Also any full tag or backup id given for listing backup contents.`,
 				r.ListLatestBackupWithFilteredByTag(tag)
 			} else {
 				if bid == 0 && tag == "" {
-					r.ListBackups()
+					r.ListBackups(detail)
 				} else if bid != 0 && tag == "" {
 					r.ListBackupWithId(bid)
 				} else if bid == 0 && tag != "" {
-					r.ListBackupsWithTag(tag)
+					r.ListBackupsWithTag(tag, detail)
 				} else {
 					return errors.New("cannot have both id and tag")
 				}
@@ -85,5 +90,6 @@ func GetListCmd() *cobra.Command {
 	listCmd.Flags().Uint64P("backup-id", "i", 0, "Backup id for listing given backup")
 	listCmd.Flags().StringP("tag", "t", "", "Backup tag for listing given backup")
 	listCmd.Flags().BoolP("latest", "l", false, "List latest backup. if tag given filter by tag prefix")
+	listCmd.Flags().BoolP("detail", "d", false, "Show compress and dedup ratio (slow operation)")
 	return listCmd
 }

@@ -334,21 +334,21 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 	return nil
 }
 
-func (rh *RepositoryHelper) ListBackups() error {
+func (rh *RepositoryHelper) ListBackups(detail bool) error {
 	backups, err := rh.bh.getAllBackups()
 	if err != nil {
 		klog.V(5).Error(err, "cannot get all backups")
 		return err
 	}
-	return rh.listBackups(backups)
+	return rh.listBackups(backups, detail)
 }
 
-func (rh *RepositoryHelper) ListBackupsWithTag(tag string) error {
+func (rh *RepositoryHelper) ListBackupsWithTag(tag string, detail bool) error {
 	backups := rh.bh.getBackupsByTag(tag)
-	return rh.listBackups(backups)
+	return rh.listBackups(backups, detail)
 }
 
-func (rh *RepositoryHelper) listBackups(backups []*Backup) error {
+func (rh *RepositoryHelper) listBackups(backups []*Backup, detail bool) error {
 	t := prettytable.NewWriter()
 	t.SetOutputMirror(os.Stdout)
 	t.AppendHeader(prettytable.Row{"#", "Backup Time", "Tag", "Item Count", "chunk count", "Total Size"})
@@ -368,13 +368,15 @@ func (rh *RepositoryHelper) listBackups(backups []*Backup) error {
 		total_chunk_count += float64(chunk_count)
 		t.AppendRow(prettytable.Row{backup.BackupId, ptypes.TimestampString(backup.BackupTime), backup.Tag, len(backup.FileInfos), chunk_count, total_len})
 	}
-	t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
-	klog.V(6).Infof("total chunk count at backups %v uniq chunk count at backups %v", total_chunk_count, len(uniq_chunk_ids))
-	dedup_ratio := 1 - float64(len(uniq_chunk_ids))/total_chunk_count
-	t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
-	compress_ratio := 1 - float64(rh.cache.getTotalSizeOfChunks(uniq_chunk_ids))/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
-	t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
-	t.AppendFooter(prettytable.Row{"", "", "", "", "Last Chunk Id", rh.cache.getLastChunkId()})
+	if detail {
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
+		klog.V(6).Infof("total chunk count at backups %v uniq chunk count at backups %v", total_chunk_count, len(uniq_chunk_ids))
+		dedup_ratio := 1 - float64(len(uniq_chunk_ids))/total_chunk_count
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
+		compress_ratio := 1 - float64(rh.cache.getTotalSizeOfChunks(uniq_chunk_ids))/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Last Chunk Id", rh.cache.getLastChunkId()})
+	}
 	t.Render()
 	return nil
 }
