@@ -36,10 +36,6 @@ func NewChunkHelper(fs backupfs.BackupFS) (*ChunkHelper, error) {
 	ch.fs = fs
 	ch.blobsDir = ChunksDir
 	ch.chunkReaderCache = make(map[string]backupfs.ReadSeekCloser)
-	_, err := ch.getLastBlobOrNew()
-	if err != nil {
-		return nil, err
-	}
 	return ch, nil
 }
 
@@ -104,6 +100,10 @@ func (ch *ChunkHelper) append(chunk_data, sum []byte) (uint64, error) {
 }
 
 func (ch *ChunkHelper) startChunkSession(next_chunk_id uint64) error {
+	_, err := ch.getLastBlobOrNew()
+	if err != nil {
+		return err
+	}
 	ch.nextChunkId = next_chunk_id
 	return ch.startSession(func() BlobInterface {
 		var cis []*ChunkInfo

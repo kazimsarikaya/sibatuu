@@ -229,7 +229,10 @@ func (fs *S3BackupFS) List(path string) ([]string, error) {
 		if obj.Err != nil {
 			return nil, obj.Err
 		}
-		res = append(res, obj.Key[len(key):])
+		fileKey := obj.Key[len(key):]
+		if !strings.HasPrefix(fileKey, ".parts-") {
+			res = append(res, fileKey)
+		}
 	}
 	sort.Strings(res)
 	return res, nil
@@ -473,9 +476,6 @@ func (w *S3WriteCloseAborter) Write(data []byte) (int, error) {
 }
 
 func (w *S3WriteCloseAborter) uploadPart() error {
-	if w.currentPartSize == 0 {
-		return nil
-	}
 	if !w.backendClosed {
 		err := w.backendWriter.Close()
 		if err != nil {
@@ -639,6 +639,6 @@ func (w *S3WriteCloseAborter) createPartsDir() error {
 func (w *S3WriteCloseAborter) getPartsDir() string {
 	parentKey := filepath.Dir(w.path)
 	base := filepath.Base(w.path)
-	partsDir := parentKey + "/" + "parts-" + base
+	partsDir := parentKey + "/" + ".parts-" + base
 	return partsDir
 }

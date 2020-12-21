@@ -39,11 +39,14 @@ func NewBackupHelper(fs backupfs.BackupFS) (*BackupHelper, error) {
 	bh := &BackupHelper{}
 	bh.fs = fs
 	bh.blobsDir = BackupsDir
-	bh.getLastBlobOrNew()
 	return bh, nil
 }
 
 func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) (*ptimestamp.Timestamp, error) {
+	_, err := bh.getLastBlobOrNew()
+	if err != nil {
+		return nil, err
+	}
 	t := time.Now()
 	ts, _ := ptypes.TimestampProto(t)
 	if tag == "" {
@@ -51,7 +54,7 @@ func (bh *BackupHelper) startBackupSession(backupId uint64, tag string) (*ptimes
 	} else {
 		tag += "-" + t.Format(time.RFC3339)
 	}
-	err := bh.startSession(func() BlobInterface {
+	err = bh.startSession(func() BlobInterface {
 		return &Backup{BackupTime: ts, BackupId: backupId, Tag: tag}
 	})
 	return ts, err

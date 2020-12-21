@@ -23,6 +23,7 @@ import (
 	klog "k8s.io/klog/v2"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 type LocalBackupFS struct {
@@ -68,6 +69,7 @@ func (fs *LocalBackupFS) List(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	sort.Strings(files)
 	return files, nil
 }
 

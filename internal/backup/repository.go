@@ -39,6 +39,7 @@ type RepositoryHelper struct {
 	fs    backupfs.BackupFS
 	ch    *ChunkHelper
 	bh    *BackupHelper
+	lm    *LockManager
 }
 
 func NewRepositoy(fs backupfs.BackupFS) (*RepositoryHelper, error) {
@@ -132,6 +133,13 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 	}
 	rh.cache = cache
 
+	lm, err := NewLockManager(fs)
+	if err != nil {
+		klog.V(0).Error(err, "error occured while creating lock manager")
+		return nil, err
+	}
+	rh.lm = lm
+
 	klog.V(5).Infof("repoinfo %v", rh)
 	return &rh, nil
 }
@@ -149,6 +157,24 @@ func (rh *RepositoryHelper) Initialize() error {
 
 	if err := rh.fs.Mkdirs(BackupsDir); err != nil {
 		klog.V(0).Error(err, "cannot create chunks folder")
+		return err
+	}
+
+	if err := rh.fs.Mkdirs(LocksControlDir); err != nil { // also creates LocksDir
+		klog.V(0).Error(err, "cannot create lock related folders")
+		return err
+	}
+
+	emptyData := make([]byte, 0)
+	w, err := rh.fs.Create(LockFile)
+	if err != nil {
+		klog.V(0).Error(err, "cannot create empty lock file")
+		return err
+	}
+	w.Write(emptyData)
+	err = w.Close()
+	if err != nil {
+		klog.V(0).Error(err, "cannot close lock file")
 		return err
 	}
 
@@ -212,25 +238,38 @@ func (rh *RepositoryHelper) writeData() error {
 }
 
 func (rh *RepositoryHelper) AbortBackup() (error, error) {
+	rh.lm.abort()
 	return rh.ch.abortSession(), rh.bh.abortSession()
 }
 
 func (rh *RepositoryHelper) Backup(path, tag string) error {
+	l, err := rh.lm.acquireLock()
+	if err != nil {
+		klog.V(5).Error(err, "cannot aquire lock ")
+		return err
+	}
+	if !l {
+		return errors.New("cannot aquire lock")
+	}
+
 	rh.cache.getLastBackup(tag)
 	last_chunk_id := rh.cache.getLastChunkId()
-	err := rh.ch.startChunkSession(last_chunk_id + 1)
+	err = rh.ch.startChunkSession(last_chunk_id + 1)
 	if err != nil {
+		rh.lm.releaseLock()
 		klog.V(5).Error(err, "cannot start chunk session")
 		return err
 	}
 	last_bid, err := rh.bh.GetLastBackupId()
 	if err != nil {
+		rh.lm.releaseLock()
 		klog.V(5).Error(err, "cannot get last backup id")
 		return err
 	}
 	bid := last_bid + 1
 	ts, err := rh.bh.startBackupSession(bid, tag)
 	if err != nil {
+		rh.lm.releaseLock()
 		klog.V(5).Error(err, "cannot start backup session")
 		return err
 	}
@@ -308,18 +347,21 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 	if err != nil {
 		rh.ch.abortSession()
 		rh.bh.abortSession()
+		rh.lm.releaseLock()
 		return err
 	}
 
 	err = rh.ch.endSession()
 	if err != nil {
 		rh.bh.abortSession()
+		rh.lm.releaseLock()
 		klog.V(5).Error(err, "cannot end chunk helper")
 		return err
 	}
 
 	err = rh.bh.endSession()
 	if err != nil {
+		rh.lm.releaseLock()
 		klog.V(5).Error(err, "cannot end backup helper, please rebackup")
 		return err
 	}
@@ -327,10 +369,12 @@ func (rh *RepositoryHelper) Backup(path, tag string) error {
 
 	err = rh.writeData()
 	if err != nil {
+		rh.lm.releaseLock()
 		klog.V(0).Error(err, "cannot update repository info, please run fix")
 		return err
 	}
 	klog.V(4).Infof("backup finished. backup id %v backup tag %v", bid, tag)
+	rh.lm.releaseLock()
 	return nil
 }
 
@@ -351,31 +395,38 @@ func (rh *RepositoryHelper) ListBackupsWithTag(tag string, detail bool) error {
 func (rh *RepositoryHelper) listBackups(backups []*Backup, detail bool) error {
 	t := prettytable.NewWriter()
 	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(prettytable.Row{"#", "Backup Time", "Tag", "Item Count", "chunk count", "Total Size"})
+	t.AppendHeader(prettytable.Row{"#", "Backup Time", "Tag", "Item Count", "chunk count", "Backup Size"})
 	var total_chunk_count float64 = 0
+	var total_item_count, total_backup_len uint64 = 0, 0
 	uniq_chunk_ids := make(map[uint64]struct{})
 	var exists = struct{}{}
 	for _, backup := range backups {
-		var total_len uint64 = 0
+		var backup_len uint64 = 0
 		var chunk_count int = 0
+		total_item_count += uint64(len(backup.FileInfos))
 		for _, fi := range backup.FileInfos {
-			total_len += fi.FileLength
+			backup_len += fi.FileLength
 			chunk_count += len(fi.ChunkIds)
 			for _, id := range fi.ChunkIds {
 				uniq_chunk_ids[id] = exists
 			}
 		}
+		total_backup_len += backup_len
 		total_chunk_count += float64(chunk_count)
-		t.AppendRow(prettytable.Row{backup.BackupId, ptypes.TimestampString(backup.BackupTime), backup.Tag, len(backup.FileInfos), chunk_count, total_len})
+		t.AppendRow(prettytable.Row{backup.BackupId, ptypes.TimestampString(backup.BackupTime), backup.Tag, len(backup.FileInfos), chunk_count, backup_len})
 	}
 	if detail {
-		t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
 		klog.V(6).Infof("total chunk count at backups %v uniq chunk count at backups %v", total_chunk_count, len(uniq_chunk_ids))
-		dedup_ratio := 1 - float64(len(uniq_chunk_ids))/total_chunk_count
-		t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.2f", dedup_ratio)})
-		compress_ratio := 1 - float64(rh.cache.getTotalSizeOfChunks(uniq_chunk_ids))/(float64(rh.cache.getChunkCount())*float64(ChunkSize))
-		t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.2f", compress_ratio)})
+		t.AppendFooter(prettytable.Row{"", "", "Totals", total_item_count, total_chunk_count, total_backup_len})
+		filtered_size := rh.cache.getTotalSizeOfChunks(uniq_chunk_ids)
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Occupied Size", filtered_size})
+		dedup_ratio := float64(len(uniq_chunk_ids)) / total_chunk_count
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Dedup Ratio", fmt.Sprintf("%.6f", dedup_ratio)})
+		compress_ratio := float64(filtered_size) / (float64(total_backup_len) * dedup_ratio)
+		//compress_ratio = math.Round(compress_ratio*100) / 100
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Compress Ratio", fmt.Sprintf("%.6f", compress_ratio)})
 		t.AppendFooter(prettytable.Row{"", "", "", "", "Last Chunk Id", rh.cache.getLastChunkId()})
+		t.AppendFooter(prettytable.Row{"", "", "", "", "Repository Size", rh.cache.getTotalChunkSize()})
 	}
 	t.Render()
 	return nil
