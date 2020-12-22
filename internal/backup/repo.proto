@@ -22,10 +22,10 @@ import "google/protobuf/timestamp.proto";
 option go_package = ".;backup";
 
 message ChunkInfo {
-  fixed64 chunk_id = 1;
+  bytes checksum = 1;
+  fixed64 chunk_id = 2;
   fixed64 start = 3;
   fixed64 length = 4;
-  bytes checksum = 5;
 }
 
 message Previous {
@@ -34,9 +34,9 @@ message Previous {
 }
 
 message ChunkInfos {
-  repeated ChunkInfo chunk_infos = 1;
-  Previous previous = 2;
-  bytes checksum = 3;
+  bytes checksum = 1;
+  repeated ChunkInfo chunk_infos = 2;
+  Previous previous = 3;
 }
 
 message Backup {
@@ -50,18 +50,18 @@ message Backup {
     fixed32 gid = 8;
     repeated fixed64 chunk_ids = 9;
   }
-  fixed64 backup_id = 1;
-  google.protobuf.Timestamp backup_time = 2;
-  string tag = 3;
-  repeated FileInfo file_infos = 4;
-  Previous previous = 5;
-  bytes checksum = 6;
+  bytes checksum = 1;
+  fixed64 backup_id = 2;
+  google.protobuf.Timestamp backup_time = 3;
+  string tag = 4;
+  repeated FileInfo file_infos = 5;
+  Previous previous = 6;
 }
 
 message Repository {
-  google.protobuf.Timestamp create_time = 1;
-  google.protobuf.Timestamp last_updated = 2;
-  bytes checksum = 3;
+  bytes checksum = 1;
+  google.protobuf.Timestamp create_time = 2;
+  google.protobuf.Timestamp last_updated = 3;
 }
 
 message LocalCache {
@@ -69,6 +69,6 @@ message LocalCache {
     string chunk_file = 1;
     repeated ChunkInfo chunk_infos = 2;
   }
-  repeated ChunkInfoFileMap chunk_info_file_maps = 1;
-  bytes checksum = 2;
+  bytes checksum = 1;
+  repeated ChunkInfoFileMap chunk_info_file_maps = 2;
 }
