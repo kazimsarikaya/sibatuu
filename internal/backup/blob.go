@@ -151,6 +151,11 @@ func getNewBlobName(name string) (string, error) {
 }
 
 func (b *Blob) startSession(creator blobCreator) error {
+	err := b.fs.Delete(b.blobsDir + "/.parts-")
+	if err != nil {
+		klog.V(5).Error(err, "cannot remove old parts folders")
+		return err
+	}
 	prev := &Previous{Start: 0, Length: 0}
 	if b.currentBlobSize != 0 {
 		reader, err := b.fs.Open(b.blobsDir + "/" + b.currentBlob)
