@@ -26,32 +26,33 @@ import (
 )
 
 type LockManager struct {
-	fs        backupfs.BackupFS
-	lockerId  uuid.UUID
-	abortFlag bool
+	fs           backupfs.BackupFS
+	lockerId     uuid.UUID
+	abortFlag    bool
+	refresher    *time.Ticker
+	endRefresher chan bool
+	rh           *RepositoryHelper
 }
 
-func NewLockManager(fs backupfs.BackupFS) (*LockManager, error) {
+func NewLockManager(fs backupfs.BackupFS, rh *RepositoryHelper) (*LockManager, error) {
 	lockerId, err := uuid.NewRandom()
 	if err != nil {
 		return nil, err
 	}
-	return &LockManager{fs: fs, lockerId: lockerId, abortFlag: false}, nil
+	lm := &LockManager{fs: fs, lockerId: lockerId, abortFlag: false, rh: rh}
+	lm.endRefresher = make(chan bool)
+	return lm, nil
 }
 
 func (lm *LockManager) abort() {
 	lm.abortFlag = true
+	lm.endRefresher <- true
 }
 
 func (lm *LockManager) acquireLock() (bool, error) {
 	lockIdStr := lm.lockerId.String()
-	lockData, err := lm.lockerId.MarshalBinary()
-	if err != nil {
-		klog.V(5).Error(err, "cannot generate lock id data")
-		return false, err
-	}
 
-	err = lm.fs.Mkdirs(LocksControlDir)
+	err := lm.fs.Mkdirs(LocksControlDir)
 	if err != nil {
 		klog.V(5).Error(err, "cannot create lock control dir if not exists")
 		return false, err
@@ -68,7 +69,7 @@ func (lm *LockManager) acquireLock() (bool, error) {
 		now := time.Now()
 		timeData, err := now.MarshalBinary()
 		if err != nil {
-			klog.V(5).Error(err, "cannot generate timestamp data")
+			klog.V(5).Error(err, "cannot generate locker timestamp data")
 			return false, err
 		}
 		_, err = w.Write(timeData)
@@ -118,6 +119,23 @@ func (lm *LockManager) acquireLock() (bool, error) {
 			return false, err
 		}
 		if len > 0 {
+			klog.V(5).Infof("lock detected, may be dead lock")
+			r, err := lm.fs.Open(LockFile)
+			if err == nil {
+				lockTimeData := make([]byte, 128)
+				rc, err := r.Read(lockTimeData)
+				if err == nil {
+					var lockTime time.Time
+					if lockTime.UnmarshalBinary(lockTimeData[:rc]) == nil {
+						if time.Now().Sub(lockTime) > LockTimeout {
+							klog.V(5).Infof("lock is dead, make zero len")
+							r.Close()
+							lm.releaseLock()
+						}
+					}
+				}
+				r.Close()
+			}
 			klog.V(5).Infof("lock detected sleeping 1 second")
 			time.Sleep(time.Second)
 		} else {
@@ -130,27 +148,61 @@ func (lm *LockManager) acquireLock() (bool, error) {
 		return false, errors.New("acquire lock aborted")
 	}
 
+	err = lm.refreshLock()
+	if err != nil {
+		lm.fs.Delete(lockControlFile)
+		return false, nil
+	}
+	lm.fs.Delete(lockControlFile)
+	lm.refresher = time.NewTicker(LockRefreshInterval)
+	go func() {
+		var errcnt int = 0
+		for {
+			select {
+			case <-lm.endRefresher:
+				return
+			case <-lm.refresher.C:
+				err := lm.refreshLock()
+				if err != nil {
+					klog.V(5).Error(err, "cannot refresh my lock")
+					errcnt += 1
+					if errcnt == 3 {
+						lm.rh.AbortBackup()
+					}
+				} else {
+					errcnt = 0
+				}
+			}
+		}
+	}()
+	return true, nil
+}
+
+func (lm *LockManager) refreshLock() error {
+	lockData, err := time.Now().MarshalBinary()
+	if err != nil {
+		klog.V(5).Error(err, "cannot generate lock timestamp data")
+		return err
+	}
+
 	w, err := lm.fs.Create(LockFile)
 	if err != nil {
-		lm.fs.Delete(lockControlFile)
 		klog.V(5).Error(err, "cannot create lock file")
-		return false, err
+		return err
 	}
+
 	_, err = w.Write(lockData)
 	if err != nil {
-		lm.fs.Delete(lockControlFile)
 		klog.V(5).Error(err, "cannot write lock id data to lock file ")
-		return false, err
+		return err
 	}
 	err = w.Close()
 	if err != nil {
-		lm.fs.Delete(lockControlFile)
 		klog.V(5).Error(err, "cannot write lock id data")
-		return false, err
+		return err
 	}
-	lm.fs.Delete(lockControlFile)
 	klog.V(5).Infof("i gathered lock")
-	return true, nil
+	return nil
 }
 
 func (lm *LockManager) releaseLock() (bool, error) {
@@ -166,5 +218,6 @@ func (lm *LockManager) releaseLock() (bool, error) {
 		klog.V(5).Error(err, "cannot close lock file")
 		return false, err
 	}
+	lm.endRefresher <- true
 	return true, nil
 }

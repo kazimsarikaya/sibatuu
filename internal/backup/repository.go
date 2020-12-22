@@ -133,7 +133,7 @@ func OpenRepositoy(fs backupfs.BackupFS, cacheDir string) (*RepositoryHelper, er
 	}
 	rh.cache = cache
 
-	lm, err := NewLockManager(fs)
+	lm, err := NewLockManager(fs, &rh)
 	if err != nil {
 		klog.V(0).Error(err, "error occured while creating lock manager")
 		return nil, err

@@ -21,18 +21,20 @@ import (
 )
 
 const (
-	RepoInfo           string        = "repoinfo"
-	ChunksDir          string        = "chunks"
-	BackupsDir         string        = "backups"
-	LocksDir           string        = "locks"
-	LocksControlDir    string        = "locks/control"
-	LockFile           string        = "locks/lock"
-	LockControlTimeout time.Duration = time.Second * 30
-	MaxBlobSize        int64         = 128 << 20
-	ChunkSize          int64         = 4 << 10
-	IOBufferSize       int           = 128 << 10
-	S3PartSize         int64         = 8 << 20
-	S3ReaderBufferSize int           = 8 << 20
+	RepoInfo            string        = "repoinfo"
+	ChunksDir           string        = "chunks"
+	BackupsDir          string        = "backups"
+	LocksDir            string        = "locks"
+	LocksControlDir     string        = "locks/control"
+	LockFile            string        = "locks/lock"
+	LockControlTimeout  time.Duration = time.Second * 30
+	LockTimeout         time.Duration = time.Minute * 2
+	LockRefreshInterval time.Duration = time.Second * 30
+	MaxBlobSize         int64         = 128 << 20
+	ChunkSize           int64         = 4 << 10
+	IOBufferSize        int           = 128 << 10
+	S3PartSize          int64         = 8 << 20
+	S3ReaderBufferSize  int           = 8 << 20
 )
 
 var (
