@@ -11,7 +11,7 @@ if [ "x$cmd" == "xbuild" ]; then
   for proto in $(find internal -name *.proto); do
     protoc --experimental_allow_proto3_optional -I $(dirname $proto) --go_out=$(dirname $proto) $(basename $proto)
   done
-  go build -ldflags "-X main.version=$REV -X main.buildTime=$NOW -X 'main.goVersion=${GOV}'"  -o ./bin/backup ./cmd
+  go build -ldflags "${LDFLAGS} -X main.version=$REV -X main.buildTime=$NOW -X 'main.goVersion=${GOV}'"  -o ./bin/backup ./cmd
 elif [ "x$cmd" == "xtest" ]; then
   shift
   ./test.sh $@
