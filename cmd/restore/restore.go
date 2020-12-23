@@ -66,6 +66,13 @@ If latest parameter given, filters backup with tag as prefix and restore operati
 				return err
 			}
 
+			if repository == "" {
+				return errors.New("Empty repository parameter")
+			}
+			if destination == "" {
+				return errors.New("Empty destination parameter")
+			}
+
 			klog.V(5).Infof("restore command called with repository %v cache %v backup id %v tag %v", repository, cache, bid, tag)
 			fs, err := backupfs.GetBackupFS(repository)
 			if err != nil {
@@ -97,7 +104,7 @@ If latest parameter given, filters backup with tag as prefix and restore operati
 					return errors.New("cannot have both file id and name")
 				}
 			} else {
-				return errors.New("one of backup id or latest and tag required")
+				return errors.New("one of backup id or tag required")
 			}
 			return err
 		},

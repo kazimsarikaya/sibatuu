@@ -25,7 +25,11 @@ import (
 	"github.com/kazimsarikaya/backup/cmd/restore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 	klog "k8s.io/klog/v2"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 var (
@@ -33,6 +37,9 @@ var (
 		Use:   "backup",
 		Short: "Backup/Restore tool",
 		Long:  `A beatiful backup and restore tool supporting local file systems and s3`,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return initializeConfig(cmd)
+		},
 	}
 	version   = ""
 	buildTime = ""
@@ -56,6 +63,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringP("repository", "r", "", "backup repository")
 	rootCmd.PersistentFlags().StringP("cache", "c", "", "local cache directory")
+	rootCmd.PersistentFlags().StringP("config", "", "", "configuration file")
 	pflag.CommandLine.AddGoFlag(flag.CommandLine.Lookup("v"))
 	pflag.CommandLine.AddGoFlag(flag.CommandLine.Lookup("logtostderr"))
 	pflag.CommandLine.Set("logtostderr", "true")
@@ -70,6 +78,60 @@ func init() {
 
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+func initializeConfig(cmd *cobra.Command) error {
+	klog.V(6).Infof("initialize config")
+	progName := filepath.Base(os.Args[0])
+	v := viper.New()
+	v.SetConfigName("config")
+	v.AddConfigPath(".")
+	v.AddConfigPath("/etc/" + progName)
+
+	if err := v.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return err
+		}
+	} else {
+		klog.V(6).Infof("config file loaded from one of default locations")
+	}
+
+	configFile, err := cmd.Flags().GetString("config")
+	if err != nil {
+		return err
+	}
+
+	if configFile != "" {
+		klog.V(6).Infof("a config file given as parameter: %v", configFile)
+		if r, err := os.Open(configFile); err == nil {
+			err = v.MergeConfig(r)
+			if err != nil {
+				klog.V(6).Error(err, "cannot merge config file")
+				return err
+			}
+			r.Close()
+		} else {
+			klog.V(6).Error(err, "cannot open config file")
+			return err
+		}
+	}
+
+	v.SetEnvPrefix(strings.ToUpper(progName))
+	v.AutomaticEnv()
+
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if strings.Contains(f.Name, "-") {
+			envVarSuffix := strings.ToUpper(strings.ReplaceAll(f.Name, "-", "_"))
+			v.BindEnv(f.Name, fmt.Sprintf("%s_%s", strings.ToUpper(progName), envVarSuffix))
+		}
+
+		if !f.Changed && v.IsSet(f.Name) {
+			val := v.Get(f.Name)
+			cmd.Flags().Set(f.Name, fmt.Sprintf("%v", val))
+		}
+	})
+	klog.V(6).Infof("config initialized")
+	return nil
 }
 
 func main() {

@@ -17,6 +17,7 @@ limitations under the License.
 package initcmd
 
 import (
+	"errors"
 	"github.com/kazimsarikaya/backup/internal/backup"
 	"github.com/kazimsarikaya/backup/internal/backupfs"
 	"github.com/spf13/cobra"
@@ -35,6 +36,9 @@ The apply order is sames as description`,
 			repository, err := cmd.Flags().GetString("repository")
 			if err != nil {
 				return err
+			}
+			if repository == "" {
+				return errors.New("Empty repository parameter")
 			}
 			klog.V(5).Infof("init command called with repository %v", repository)
 			fs, err := backupfs.GetBackupFS(repository)

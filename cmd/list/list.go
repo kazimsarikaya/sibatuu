@@ -58,6 +58,10 @@ If backup id given, list contents of that backup.`,
 				return err
 			}
 
+			if repository == "" {
+				return errors.New("Empty repository parameter")
+			}
+
 			klog.V(5).Infof("list command called with repository %v cache %v backup id %v tag %v latest? %v detail? %v", repository, cache, bid, tag, latest, detail)
 			fs, err := backupfs.GetBackupFS(repository)
 			if err != nil {

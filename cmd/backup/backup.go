@@ -51,6 +51,17 @@ If tag not given it's default is backup timestamp.`,
 			if err != nil {
 				return err
 			}
+
+			if repository == "" {
+				return errors.New("Empty repository parameter")
+			}
+			if source == "" {
+				return errors.New("Empty source parameter")
+			}
+			if tag == "" {
+				return errors.New("Empty tag parameter")
+			}
+
 			klog.V(5).Infof("backup command called with repository %v source %v cache %v tag %v", repository, source, cache, tag)
 			fs, err := backupfs.GetBackupFS(repository)
 			if err != nil {
@@ -88,6 +99,6 @@ If tag not given it's default is backup timestamp.`,
 
 func GetBackupCmd() *cobra.Command {
 	backupCmd.Flags().StringP("source", "s", "", "Backup source which will be backuped")
-	backupCmd.Flags().StringP("tag", "t", "", "Backup tag, if not given backup timestamp")
+	backupCmd.Flags().StringP("tag", "t", "", "Backup tag, used for identify backup sources")
 	return backupCmd
 }
