@@ -13,5 +13,5 @@ ENV LDFLAGS="-w -s"
 RUN make build
 
 FROM scratch
-COPY --from=builder /source/bin/backup /bin/backup
-ENTRYPOINT ["/bin/backup"]
+COPY --from=builder /source/bin/sibatuu /bin/sibatuu
+ENTRYPOINT ["/bin/sibatuu"]
