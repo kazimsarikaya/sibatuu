@@ -48,6 +48,21 @@ var (
 	buildTime = ""
 	goVersion = ""
 
+	readMeHeader = `# SIBATUU (SImple BAckup TUUl)
+
+SIBATUU is a simple backup tool for creating backups to a local or remote (with s3 api) location and restore it. Configuration can be given as config file,
+environment variable or command line parameter.
+
+Configuration file can be json, yaml or toml. Configuration file will be parsed by viper. Environment variables should
+be start by ` + "```" + `SIBATUU_` + "```" + ` and auto detected by argument name such as ` + "```" + `SIBATUU_REPOSITORY` + "```" + `.
+
+If repository is at local file system, repository will be a path address such as ` + "```" + `/my/backup/repo` + "```" + `. If repository
+address is at S3 compatible object storage, format will be like ` + "```" + `s3://<username>:<password>@<host>:<port>/<bucket>[/sub/path]` + "```" + `.
+
+# Usage
+
+`
+
 	versionCmd = &cobra.Command{
 		Use:   "version",
 		Short: "Show version information",
@@ -72,7 +87,7 @@ var (
 
 			var genReadMe func(cmd *cobra.Command, out *bytes.Buffer) error
 			genReadMe = func(cmd *cobra.Command, out *bytes.Buffer) error {
-
+				cmd.DisableAutoGenTag = true
 				if err := cobradoc.GenMarkdownCustom(cmd, out, lh); err != nil {
 					return err
 				}
@@ -86,6 +101,7 @@ var (
 			out := new(bytes.Buffer)
 			genReadMe(rootCmd, out)
 			if rm, err := os.Create("README.md"); err == nil {
+				rm.Write([]byte(readMeHeader))
 				rm.Write(out.Bytes())
 				rm.Close()
 			} else {
