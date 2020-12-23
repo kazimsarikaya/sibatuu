@@ -19,8 +19,8 @@ package backup
 import (
 	"errors"
 	"github.com/google/uuid"
-	. "github.com/kazimsarikaya/backup/internal"
-	"github.com/kazimsarikaya/backup/internal/backupfs"
+	. "github.com/kazimsarikaya/sibatuu/internal"
+	"github.com/kazimsarikaya/sibatuu/internal/backupfs"
 	klog "k8s.io/klog/v2"
 	"time"
 )

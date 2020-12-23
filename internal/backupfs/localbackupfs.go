@@ -18,7 +18,7 @@ package backupfs
 
 import (
 	"errors"
-	. "github.com/kazimsarikaya/backup/internal"
+	. "github.com/kazimsarikaya/sibatuu/internal"
 	"io"
 	klog "k8s.io/klog/v2"
 	"os"

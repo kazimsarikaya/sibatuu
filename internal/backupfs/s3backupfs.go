@@ -21,7 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	. "github.com/kazimsarikaya/backup/internal"
+	. "github.com/kazimsarikaya/sibatuu/internal"
 	minio "github.com/minio/minio-go/v7"
 	miniocred "github.com/minio/minio-go/v7/pkg/credentials"
 	"io"

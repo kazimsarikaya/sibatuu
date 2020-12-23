@@ -20,7 +20,7 @@ import (
 	"crypto/sha256"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/kazimsarikaya/backup/internal/backupfs"
+	"github.com/kazimsarikaya/sibatuu/internal/backupfs"
 	klog "k8s.io/klog/v2"
 	"os"
 )

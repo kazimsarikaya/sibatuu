@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 	proto "github.com/golang/protobuf/proto"
-	. "github.com/kazimsarikaya/backup/internal"
-	"github.com/kazimsarikaya/backup/internal/backupfs"
+	. "github.com/kazimsarikaya/sibatuu/internal"
+	"github.com/kazimsarikaya/sibatuu/internal/backupfs"
 	klog "k8s.io/klog/v2"
 )
 

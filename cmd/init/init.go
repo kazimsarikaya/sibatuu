@@ -18,8 +18,8 @@ package initcmd
 
 import (
 	"errors"
-	"github.com/kazimsarikaya/backup/internal/backup"
-	"github.com/kazimsarikaya/backup/internal/backupfs"
+	"github.com/kazimsarikaya/sibatuu/internal/backup"
+	"github.com/kazimsarikaya/sibatuu/internal/backupfs"
 	"github.com/spf13/cobra"
 	klog "k8s.io/klog/v2"
 )

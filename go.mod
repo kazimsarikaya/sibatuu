@@ -1,4 +1,4 @@
-module github.com/kazimsarikaya/backup
+module github.com/kazimsarikaya/sibatuu
 
 go 1.15
 

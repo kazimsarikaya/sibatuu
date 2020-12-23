@@ -18,7 +18,7 @@ package backup
 
 import (
 	"encoding/binary"
-	. "github.com/kazimsarikaya/backup/internal"
+	. "github.com/kazimsarikaya/sibatuu/internal"
 )
 
 func checkHeaderAndGetLength(data []byte) (bool, int64) {
