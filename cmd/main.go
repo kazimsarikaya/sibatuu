@@ -116,7 +116,7 @@ func init() {
 	klog.InitFlags(nil)
 
 	rootCmd.PersistentFlags().StringP("repository", "r", "", "backup repository")
-	rootCmd.PersistentFlags().StringP("cache", "c", "", "local cache directory")
+	rootCmd.PersistentFlags().StringP("cache", "c", ".cache", "local cache directory")
 	rootCmd.PersistentFlags().StringP("config", "", "", "configuration file")
 	pflag.CommandLine.AddGoFlag(flag.CommandLine.Lookup("v"))
 	pflag.CommandLine.AddGoFlag(flag.CommandLine.Lookup("logtostderr"))
