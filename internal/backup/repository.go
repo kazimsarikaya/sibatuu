@@ -556,7 +556,7 @@ func (rh *RepositoryHelper) restoreItems(destination string, backup *Backup, ove
 	if backup == nil {
 		return errors.New("backup not found")
 	}
-	rh.cache.getLastBackup(backup.GetTag())
+	rh.cache.setLastBackup(backup)
 	destDir, err := os.Open(destination)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -698,18 +698,10 @@ func (rh *RepositoryHelper) restoreFileData(dest string, fi *Backup_FileInfo) er
 		return err
 	}
 	for _, cid := range fi.ChunkIds {
-		bf, start, len := rh.cache.getBlobFileOfChunkId(cid)
-		if bf == nil {
-			return errors.New(fmt.Sprintf("cannot find blob file for chunk id %v", cid))
-		}
-		klog.V(5).Infof("try to get chunk id %v for %v", cid, dest)
-		data, err := rh.ch.getChunkData(*bf, start, len)
+		data, err := rh.cache.getChunkData(cid)
 		if err != nil {
-			klog.V(5).Error(err, fmt.Sprintf("chunk data not received for file %v for chunk id %v", dest, cid))
+			klog.V(5).Error(err, "cannot get chunk data for chunk %v for file %v", cid, dest)
 			return err
-		}
-		if data == nil {
-			return errors.New(fmt.Sprintf("cannot get data for chunk id %v", cid))
 		}
 		outf.Write(data)
 		klog.V(6).Infof("chunk id %v restored for %v", cid, dest)

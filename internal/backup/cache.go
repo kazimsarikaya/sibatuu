@@ -18,9 +18,12 @@ package backup
 
 import (
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/kazimsarikaya/sibatuu/internal/backupfs"
+	"io/ioutil"
 	klog "k8s.io/klog/v2"
 	"os"
 )
@@ -42,6 +45,7 @@ type Cache struct {
 	ch            *ChunkHelper
 	bh            *BackupHelper
 	lastBackup    *Backup
+	chunkRefMap   map[uint64]int
 }
 
 func NewCache(fs backupfs.BackupFS, cacheDir string, ch *ChunkHelper, bh *BackupHelper) (*Cache, error) {
@@ -116,7 +120,9 @@ func (c *Cache) fillCache() error {
 		klog.V(5).Error(err, "cannot encode local cache")
 		return err
 	}
+	err = os.RemoveAll(c.cacheDir)
 	os.MkdirAll(c.cacheDir, 0700)
+	os.MkdirAll(c.cacheDir+"/chunks", 0700)
 	outf, err := os.Create(c.cacheDir + "/" + localCaheFile)
 	if err != nil {
 		klog.V(5).Error(err, "cannot create local cache file")
@@ -173,6 +179,57 @@ func (c *Cache) getTotalChunkSize() uint64 {
 
 func (c *Cache) getLastBackup(tag string) {
 	c.lastBackup = c.bh.getLatestBackupWithFilteredByTag(tag)
+	c.fillChunkRefMap()
+}
+
+func (c *Cache) setLastBackup(backup *Backup) {
+	c.lastBackup = backup
+	c.fillChunkRefMap()
+}
+
+func (c *Cache) fillChunkRefMap() {
+	if c.lastBackup != nil {
+		c.chunkRefMap = make(map[uint64]int)
+		for _, fi := range c.lastBackup.FileInfos {
+			for _, cid := range fi.ChunkIds {
+				if _, ok := c.chunkRefMap[cid]; !ok {
+					c.chunkRefMap[cid] = 1
+				} else {
+					c.chunkRefMap[cid] += 1
+				}
+			}
+		}
+	}
+}
+
+func (c *Cache) getChunkData(cid uint64) ([]byte, error) {
+	_, err := os.Stat(fmt.Sprintf("%v/chunks/%v", c.cacheDir, cid))
+	if os.IsNotExist(err) {
+		bf, start, len := c.getBlobFileOfChunkId(cid)
+		if bf == nil {
+			return nil, errors.New(fmt.Sprintf("cannot find blob file for chunk id %v", cid))
+		}
+		klog.V(5).Infof("try to get chunk id %v", cid)
+		data, err := c.ch.getChunkData(*bf, start, len)
+		if err != nil {
+			klog.V(5).Error(err, fmt.Sprintf("chunk data not received for chunk id %v", cid))
+			return nil, err
+		}
+		if data == nil {
+			return nil, errors.New(fmt.Sprintf("cannot get data for chunk id %v", cid))
+		}
+		if c.chunkRefMap[cid] > 1 {
+			err = ioutil.WriteFile(fmt.Sprintf("%v/chunks/%v", c.cacheDir, cid), data, 0644)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return data, nil
+	} else if err == nil {
+		return ioutil.ReadFile(fmt.Sprintf("%v/chunks/%v", c.cacheDir, cid))
+	} else {
+		return nil, err
+	}
 }
 
 func (c *Cache) isFileChangedOrGetChunkIds(trimmedPath string, info os.FileInfo) (bool, []uint64) {
