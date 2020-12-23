@@ -556,12 +556,44 @@ func (rh *RepositoryHelper) restoreItems(destination string, backup *Backup, ove
 	if backup == nil {
 		return errors.New("backup not found")
 	}
-	for _, fi := range backup.FileInfos {
-		if err := rh.restoreItem(destination, fi, backup, override); err != nil {
+	rh.cache.getLastBackup(backup.GetTag())
+	destDir, err := os.Open(destination)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			klog.V(5).Error(err, "cannot open destination directory")
 			return err
 		}
 	}
-	return rh.fixMtimes(destination, backup)
+	canRestore := false
+	if os.IsNotExist(err) {
+		klog.V(6).Infof("directory is not exists we can restore")
+		canRestore = true
+	} else {
+		_, err = destDir.Readdirnames(1) // Or f.Readdir(1)
+		destDir.Close()
+		if err == io.EOF {
+			klog.V(6).Infof("directory is empty we can restore")
+			canRestore = true
+		} else if err == nil {
+			if override {
+				klog.V(6).Infof("directory is not empty but override given we can restore")
+				canRestore = true
+			}
+		} else {
+			klog.V(5).Error(err, "cannot check destination directory")
+			return err
+		}
+	}
+
+	if canRestore {
+		for _, fi := range backup.FileInfos {
+			if err := rh.restoreItem(destination, fi, backup, override); err != nil {
+				return err
+			}
+		}
+		return rh.fixMtimes(destination, backup)
+	}
+	return errors.New("cannot restore destination is not empty and override is false")
 }
 
 func (rh *RepositoryHelper) fixMtimes(destination string, backup *Backup) error {
