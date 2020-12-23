@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"github.com/kazimsarikaya/sibatuu/cmd/backup"
@@ -24,18 +25,20 @@ import (
 	"github.com/kazimsarikaya/sibatuu/cmd/list"
 	"github.com/kazimsarikaya/sibatuu/cmd/restore"
 	"github.com/spf13/cobra"
+	cobradoc "github.com/spf13/cobra/doc"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	klog "k8s.io/klog/v2"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
 
 var (
 	rootCmd = &cobra.Command{
-		Use:   "backup",
-		Short: "Backup/Restore tool",
+		Use:   "sibatuu",
+		Short: "A simple backup tool",
 		Long:  `A beatiful backup and restore tool supporting local file systems and s3`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return initializeConfig(cmd)
@@ -53,6 +56,41 @@ var (
 			fmt.Printf("Version: %v\n", version)
 			fmt.Printf("Build Time: %v\n", buildTime)
 			fmt.Printf("%v\n", goVersion)
+		},
+	}
+
+	readmeCmd = &cobra.Command{
+		Use:    "readme",
+		Hidden: true,
+		Run: func(cmd *cobra.Command, args []string) {
+
+			lh := func(name string) string {
+				base := strings.TrimSuffix(name, path.Ext(name))
+				base = strings.Replace(base, "_", "-", -1)
+				return "#" + base
+			}
+
+			var genReadMe func(cmd *cobra.Command, out *bytes.Buffer) error
+			genReadMe = func(cmd *cobra.Command, out *bytes.Buffer) error {
+
+				if err := cobradoc.GenMarkdownCustom(cmd, out, lh); err != nil {
+					return err
+				}
+				for _, subcmd := range cmd.Commands() {
+					if err := genReadMe(subcmd, out); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			out := new(bytes.Buffer)
+			genReadMe(rootCmd, out)
+			if rm, err := os.Create("README.md"); err == nil {
+				rm.Write(out.Bytes())
+				rm.Close()
+			} else {
+				klog.V(0).Error(err, "cannot generate readme")
+			}
 		},
 	}
 )
@@ -73,6 +111,7 @@ func init() {
 	rootCmd.AddCommand(listcmd.GetListCmd())
 	rootCmd.AddCommand(restorecmd.GetRestoreCmd())
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(readmeCmd)
 
 }
 
