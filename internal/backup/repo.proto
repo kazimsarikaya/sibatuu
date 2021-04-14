@@ -19,7 +19,7 @@ package backup;
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = ".;backup";
+option go_package = "./;backup";
 
 message ChunkInfo {
   bytes checksum = 1;
