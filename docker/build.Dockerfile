@@ -1,4 +1,4 @@
-FROM golang:alpine as builder
+FROM golang:1.15-alpine as builder
 RUN apk add make git build-base protoc --no-cache \
     && go get google.golang.org/protobuf/cmd/protoc-gen-go \
     && wget https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip \
