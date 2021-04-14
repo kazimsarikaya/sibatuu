@@ -230,7 +230,8 @@ func (fs *S3BackupFS) List(path string) ([]string, error) {
 			return nil, obj.Err
 		}
 		fileKey := obj.Key[len(key):]
-		if !strings.HasPrefix(fileKey, ".parts-") {
+		if !strings.HasPrefix(fileKey, ".parts-") && len(fileKey) != 0 {
+			klog.V(5).Infof("key: -%v- length: %v", fileKey, len(fileKey))
 			res = append(res, fileKey)
 		}
 	}
